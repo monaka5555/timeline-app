@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="タイムライン">
+<title>タイムライン</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; padding: 0; font-family: -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif; }
+  input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; }
+  ::-webkit-scrollbar { display: none; }
+  * { scrollbar-width: none; }
+  .save-toast { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 8px 18px; border-radius: 20px; font-size: 12px; z-index: 9999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  .save-toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div class="save-toast" id="toast">💾 保存しました</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ─── STORAGE ──────────────────────────────────────────────────────────────────
+const STORAGE_KEY = "timeline_app_v2";
+function loadData() { try { const r=localStorage.getItem(STORAGE_KEY); return r?JSON.parse(r):null; } catch{return null;} }
+function saveData(data) { try { localStorage.setItem(STORAGE_KEY,JSON.stringify(data)); showToast(); } catch{} }
+function showToast() { const el=document.getElementById("toast"); if(!el)return; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),1800); }
+
+// ─── DATE HELPERS ─────────────────────────────────────────────────────────────
+// dateKey: "YYYY-MM-DD" 形式
+function dateToKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function keyToDate(k) { const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
+function todayKey() { return dateToKey(new Date()); }
+function addDays(d,n) { const r=new Date(d); r.setDate(r.getDate()+n); return r; }
+
+// ─── THEMES ───────────────────────────────────────────────────────────────────
+const THEMES = [
+  { id:"craft", name:"和紙", emoji:"🌾", desc:"温かみのあるベージュ×ゴールド", dark:false,
+    bg:"#f3e8d6", surface:"#ede0c8", surface2:"#e8d8b8", border:"#d6c9b0", borderStrong:"#c4b49a",
+    accent:"#d0a727", accentDim:"#d0a72726", accentGlow:"#d0a72748",
+    green:"#667572", greenDim:"#66757224", amber:"#c49020", amberDim:"#c4902024",
+    red:"#b85c4a", redDim:"#b85c4a24", pink:"#a1bad0", pinkDim:"#a1bad034",
+    text:"#2e2a22", textSub:"#667572", textFaint:"#c4b49a" },
+  { id:"craft3", name:"和紙3",emoji:"🌾", desc:"和紙3",
+dark:false,
+bg:"#ede0c8",          // ★背景を1トーン落として落ち着かせます
+surface:"#fbf9f5",     // ★カード側を「明るい和紙の白」にして引き立たせます
+surface2:"#f3e8d6",    // 
+border:"#d6c9b0",
+borderStrong:"#bba98a", // ★少し強めてメリハリを
+accent:"#bfa13d",      // ★少しだけトーンを落とした上品な金（ゴールド）に
+accentDim:"#bfa13d26",
+accentGlow:"#bfa13d48",
+green:"#52665a",       // ★渋みのある深緑
+amber:"#c49020",
+amberDim:"#c4902024",
+red:"#a94d3c",         // ★落ち着いた朱赤
+pink:"#a1bad0",        // （水色のまま活かす場合：システムで青として使われていればOKです！）
+text:"#211e19",        // ★文字を少しだけ濃くして読みやすく
+textSub:"#685f51",     // ★温かみのあるダークグレーに
+textFaint:"#bba98a",
+ },
+  { id:"forest", name:"森", emoji:"🌿", desc:"深緑×モスグリーン", dark:false,
+    bg:"#0e1410", surface:"#161e18", surface2:"#1e2820", border:"#263028", borderStrong:"#324038",
+    accent:"#4ade80", accentDim:"#4ade8026", accentGlow:"#4ade8048",
+    green:"#86efac", greenDim:"#86efac24", amber:"#fbbf24", amberDim:"#fbbf2424",
+    red:"#f87171", redDim:"#f8717124", pink:"#a7f3d0", pinkDim:"#a7f3d034",
+    text:"#e8f4ec", textSub:"#6a9070", textFaint:"#243028" },
+  { id:"craft2", name:"和紙2",emoji:"🌾", desc:"和紙2",
+dark:false,
+bg:"#fbf9f5",          // ★少し明るく清潔感のある和紙の白に
+surface:"#f3e8d6",     // ★元の背景色をここに。カードが綺麗に浮き出ます
+surface2:"#ede0c8",    // ★一段階濃いめのベージュに
+border:"#e2d6be",      // ★境界線も少し柔らかく
+borderStrong:"#c4b49a",
+accent:"#d0a727",
+accentDim:"#d0a72726",
+accentGlow:"#d0a72748",
+green:"#5b7065",       // ★少し深みのある利休鼠（和の緑）に
+amber:"#c49020",
+amberDim:"#c4902024",
+red:"#b85c4a",
+redDim:"#b85c4a24",
+pink:"#c58a9f",        // ★「ピンク」に合う落ち着いた梅鼠（和のピンク）に
+text:"#2e2a22",
+textSub:"#6e675d",     // ★文字の視認性を上げるため、緑ではなく落ち着いたブラウングレーに
+textFaint:"#c4b49a",
+ },
+  { id:"slate", name:"石板", emoji:"🪨", desc:"モノトーン×シルバー", dark:false,
+    bg:"#111318", surface:"#191c22", surface2:"#21252e", border:"#2a2e38", borderStrong:"#363c48",
+    accent:"#94a3b8", accentDim:"#94a3b826", accentGlow:"#94a3b848",
+    green:"#6ee7b7", greenDim:"#6ee7b724", amber:"#fcd34d", amberDim:"#fcd34d24",
+    red:"#fca5a5", redDim:"#fca5a524", pink:"#c4b5fd", pinkDim:"#c4b5fd34",
+    text:"#e2e8f0", textSub:"#64748b", textFaint:"#1e2430" },
+];
+let C = THEMES[0];
+
+// ─── ICONS ────────────────────────────────────────────────────────────────────
+function Icon({name,size=16,color,style:s={}}) {
+  const col=color||C.text;
+  const icons={
+    checkmark:<svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke={col} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+    plus:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={col} strokeWidth="2" strokeLinecap="round"/></svg>,
+    pin:      <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M9.5 2.5l4 4-1.5 1.5-1-.5-3 3 .5 1.5-1.5 1.5-2-2L3 13l-.5-.5 2-2.5-2-2 1.5-1.5 1.5.5 3-3L8 3l1.5-.5z" stroke={col} strokeWidth="1.2" strokeLinejoin="round" fill={col} fillOpacity="0.15"/></svg>,
+    pinFill:  <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M9.5 2.5l4 4-1.5 1.5-1-.5-3 3 .5 1.5-1.5 1.5-2-2L3 13l-.5-.5 2-2.5-2-2 1.5-1.5 1.5.5 3-3L8 3l1.5-.5z" fill={col}/></svg>,
+    repeat:   <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0110.5-3.9M14 8a6 6 0 01-10.5 3.9" stroke={col} strokeWidth="1.5" strokeLinecap="round"/><path d="M12 2.5l1.5 1.5L12 5.5M4 10.5l-1.5 1.5L4 13.5" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+    edit:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M11 2l3 3-8 8H3v-3l8-8z" stroke={col} strokeWidth="1.5" strokeLinejoin="round"/></svg>,
+    trash:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M3 5h10M6 5V3h4v2M5 5l1 8h4l1-8" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+    sun:      <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke={col} strokeWidth="1.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
+    moon:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M13 9.5A6 6 0 016.5 3c0-.4.03-.8.1-1.2A6.5 6.5 0 1014.2 9.4c-.4.07-.8.1-1.2.1z" stroke={col} strokeWidth="1.5" strokeLinejoin="round"/></svg>,
+    clock:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke={col} strokeWidth="1.5"/><path d="M8 5v3l2 2" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+    calendar: <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="2" stroke={col} strokeWidth="1.5"/><path d="M2 7h12M5 2v2M11 2v2" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
+    gear:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke={col} strokeWidth="1.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
+    chart:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M2 12l3-4 3 2 3-5 3 3" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M2 14h12" stroke={col} strokeWidth="1.2" strokeLinecap="round"/></svg>,
+    later:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke={col} strokeWidth="1.5"/><path d="M8 5v3l2 2" stroke={col} strokeWidth="1.5" strokeLinecap="round"/><path d="M11 12l1.5 2" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
+    today:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="2" stroke={col} strokeWidth="1.5"/><path d="M2 7h12M5 2v2M11 2v2" stroke={col} strokeWidth="1.5" strokeLinecap="round"/><circle cx="8" cy="10" r="1.5" fill={col}/></svg>,
+    promote:  <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M8 12V4M4 8l4-4 4 4" stroke={col} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+    sync:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0110.5-3.9M14 8a6 6 0 01-10.5 3.9" stroke={col} strokeWidth="1.5" strokeLinecap="round"/><path d="M12 2.5l1.5 1.5L12 5.5M4 10.5l-1.5 1.5L4 13.5" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+    chevL:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M10 4l-4 4 4 4" stroke={col} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+    chevR:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke={col} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+    home:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M2 7l6-5 6 5v7H10v-4H6v4H2V7z" stroke={col} strokeWidth="1.5" strokeLinejoin="round"/></svg>,
+  };
+  return <span style={{display:"inline-flex",alignItems:"center",...s}}>{icons[name]||null}</span>;
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function toMin(t){const[h,m]=t.split(":").map(Number);return h*60+m;}
+function toTime(m){return`${String(Math.floor(m/60)%24).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;}
+function nowMin(){const n=new Date();return n.getHours()*60+n.getMinutes();}
+function fmtDur(m){return m<60?`${m}分`:(m%60===0?`${m/60}時間`:`${Math.floor(m/60)}時間${m%60}分`);}
+function assignColumns(tasks){
+  const sorted=[...tasks].sort((a,b)=>toMin(a.time)-toMin(b.time));
+  const result=sorted.map(t=>({...t,col:0,totalCols:1}));
+  for(let i=0;i<result.length;i++){
+    const a=result[i],aEnd=toMin(a.time)+a.duration,ov=[a];
+    for(let j=i+1;j<result.length;j++){if(toMin(result[j].time)<aEnd)ov.push(result[j]);}
+    if(ov.length>1)ov.forEach((t,idx)=>{t.col=idx;t.totalCols=ov.length;});
+  }
+  return result;
+}
+const WEEKDAY_LABELS=["日","月","火","水","木","金","土"];
+function repeatLabel(r){
+  if(!r||r.type==="none")return null;
+  if(r.type==="daily")return r.interval===1?"毎日":`${r.interval}日おき`;
+  if(r.type==="weekday")return"平日";
+  if(r.type==="weekly"){const d=r.days?.length?r.days.map(x=>WEEKDAY_LABELS[x]).join(""):"";return r.interval===1?`毎週${d}`:`${r.interval}週おき${d}`;}
+  if(r.type==="monthly")return r.interval===1?"毎月":`${r.interval}ヶ月ごと`;
+  if(r.type==="yearly")return r.interval===1?"毎年":`${r.interval}年おき`;
+  return"繰り返し";
+}
+function inputSt(){return{width:"100%",background:C.bg,border:`1px solid ${C.borderStrong}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:14,outline:"none",boxSizing:"border-box",colorScheme:C.dark?"dark":"light"};}
+
+// ─── ICAL PARSER (RRULE対応) ──────────────────────────────────────────────────
+function parseICal(icalText, targetDate) {
+  // targetDate: Dateオブジェクト（表示したい日）
+  const lines = icalText.split(/\r?\n/);
+  const rawEvents = [];
+  let cur = null;
+  const tgt = targetDate || new Date();
+  const tgtStart = new Date(tgt); tgtStart.setHours(0,0,0,0);
+  const tgtEnd   = new Date(tgt); tgtEnd.setHours(23,59,59,999);
+  const tgtDow   = tgt.getDay();
+
+  const parseDateStr = (str) => {
+    if(!str)return null;
+    const clean=str.replace(/[^0-9T]/g,'');
+    if(clean.includes('T')){
+      const y=parseInt(clean.substring(0,4)),mo=parseInt(clean.substring(4,6))-1,
+            d=parseInt(clean.substring(6,8)),h=parseInt(clean.substring(9,11)),
+            mi=parseInt(clean.substring(11,13)),s=parseInt(clean.substring(13,15));
+      return str.endsWith('Z')?new Date(Date.UTC(y,mo,d,h,mi,s)):new Date(y,mo,d,h,mi,s);
+    } else {
+      const y=parseInt(clean.substring(0,4)),mo=parseInt(clean.substring(4,6))-1,d=parseInt(clean.substring(6,8));
+      return new Date(y,mo,d,0,0,0);
+    }
+  };
+  const BYDAY_MAP={SU:0,MO:1,TU:2,WE:3,TH:4,FR:5,SA:6};
+  const parseByDay=(str)=>str.split(',').map(s=>BYDAY_MAP[s.replace(/[^A-Z]/g,'')]).filter(n=>n!==undefined);
+
+  const getOccurrence = (ev) => {
+    const start=ev.startDate;
+    if(!start||!ev.rrule)return null;
+    if(start>tgtEnd)return null;
+    const r={};
+    ev.rrule.split(';').forEach(p=>{const[k,v]=p.split('=');r[k]=v;});
+    const freq=r.FREQ,interval=parseInt(r.INTERVAL||'1');
+    if(r.UNTIL){const until=parseDateStr(r.UNTIL);if(until&&tgt>until)return null;}
+    if(ev.exdates?.some(ex=>ex>=tgtStart&&ex<=tgtEnd))return null;
+    const startDay=new Date(start);startDay.setHours(0,0,0,0);
+    const diffDays=Math.round((tgtStart-startDay)/86400000);
+    if(diffDays<0)return null;
+    let matches=false;
+    if(freq==='DAILY'){matches=diffDays%interval===0;}
+    else if(freq==='WEEKLY'){
+      const byDay=r.BYDAY?parseByDay(r.BYDAY):[start.getDay()];
+      matches=byDay.includes(tgtDow)&&Math.floor(diffDays/7)%interval===0;
+    } else if(freq==='MONTHLY'){
+      const ms=(tgt.getFullYear()-start.getFullYear())*12+(tgt.getMonth()-start.getMonth());
+      matches=tgt.getDate()===start.getDate()&&ms%interval===0;
+    } else if(freq==='YEARLY'){
+      matches=tgt.getMonth()===start.getMonth()&&tgt.getDate()===start.getDate()&&(tgt.getFullYear()-start.getFullYear())%interval===0;
+    }
+    if(!matches)return null;
+    const occ=new Date(tgt);
+    occ.setHours(start.getHours(),start.getMinutes(),start.getSeconds(),0);
+    return occ;
+  };
+
+  for(let i=0;i<lines.length;i++){
+    let line=lines[i];
+    while(i+1<lines.length&&(lines[i+1].startsWith(' ')||lines[i+1].startsWith('\t'))){line+=lines[++i].substring(1);}
+    line=line.trim();
+    if(line==='BEGIN:VEVENT'){cur={exdates:[]};}
+    else if(line==='END:VEVENT'){if(cur?.title&&cur.startDate)rawEvents.push(cur);cur=null;}
+    else if(cur){
+      if(line.startsWith('SUMMARY:'))cur.title=line.replace('SUMMARY:','').trim();
+      else if(line.startsWith('DTSTART')){const v=line.split(':').slice(1).join(':');cur.startDate=parseDateStr(v);cur.isAllDay=line.includes('VALUE=DATE')&&!v.includes('T');}
+      else if(line.startsWith('DTEND'))cur.endDate=parseDateStr(line.split(':').slice(1).join(':'));
+      else if(line.startsWith('RRULE:'))cur.rrule=line.replace('RRULE:','').trim();
+      else if(line.startsWith('EXDATE')){const ex=parseDateStr(line.split(':').slice(1).join(':'));if(ex)cur.exdates.push(ex);}
+    }
+  }
+
+  const results=[];
+  for(const ev of rawEvents){
+    const start=ev.startDate;
+    const duration=ev.endDate?Math.max(1,Math.round((ev.endDate-start)/60000)):(ev.isAllDay?60:30);
+    let occDate=null;
+    if(!ev.rrule){if(start>=tgtStart&&start<=tgtEnd)occDate=start;}
+    else{occDate=getOccurrence(ev);}
+    if(occDate){
+      results.push({
+        id:`google-${Date.now()}-${results.length}`,
+        title:ev.title,
+        time:`${String(occDate.getHours()).padStart(2,'0')}:${String(occDate.getMinutes()).padStart(2,'0')}`,
+        duration:ev.isAllDay?60:duration,
+        categoryId:"google",done:false,pinned:false,isGoogle:true,
+        note:ev.rrule?"Googleカレンダーから同期 (繰り返し)":ev.isAllDay?"Googleカレンダーから同期 (終日)":"Googleカレンダーから同期"
+      });
+    }
+  }
+  return results;
+}
+
+// ─── DEFAULT DATA ─────────────────────────────────────────────────────────────
+const DEFAULT_CATEGORIES=[
+  {id:"work",  name:"仕事",    color:"#5a7a9a",bg:"#5a7a9a22"},
+  {id:"child", name:"育児",    color:"#667572",bg:"#66757222"},
+  {id:"house", name:"家事",    color:"#d0a727",bg:"#d0a72722"},
+  {id:"self",  name:"自分時間",color:"#a1bad0",bg:"#a1bad030"},
+  {id:"health",name:"健康",    color:"#8a6e3a",bg:"#8a6e3a22"},
+  {id:"other", name:"その他",  color:"#9aaba8",bg:"#9aaba822"},
+  {id:"google",name:"🗓️ Google",color:"#4285F4",bg:"#4285F422"},
+];
+const DEFAULT_TASKS=[
+  {id:1,title:"起床・朝のルーティン",time:"07:00",duration:30,categoryId:"health",done:false,pinned:true, dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
+  {id:2,title:"子どもたちの朝支度",  time:"07:30",duration:45,categoryId:"child", done:false,pinned:false,dateKey:null,repeat:{type:"weekday",interval:1,end:{type:"none"}},note:""},
+  {id:3,title:"服薬・身支度",        time:"08:05",duration:15,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
+  {id:4,title:"朝の家事",            time:"08:10",duration:80,categoryId:"house", done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
+  {id:5,title:"通院・外出準備",      time:"09:10",duration:50,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"none",   interval:1,end:{type:"none"}},note:""},
+  {id:6,title:"カウンセリング",      time:"11:30",duration:60,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"weekly", interval:1,days:[2],end:{type:"none"}},note:""},
+  {id:7,title:"昼食・休憩",          time:"13:00",duration:45,categoryId:"self",  done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
+  {id:8,title:"夕飯づくり",          time:"17:30",duration:45,categoryId:"house", done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
+  {id:9,title:"就寝準備",            time:"22:30",duration:30,categoryId:"health",done:false,pinned:true, dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
+];
+const DEFAULT_LATER=[
+  {id:101,title:"担任への家庭訪問メモ整理",    categoryId:"child", pinned:true},
+  {id:102,title:"次男の漢字練習プリント準備",  categoryId:"child", pinned:false},
+  {id:103,title:"通院時に話すテーマをまとめる",categoryId:"health",pinned:false},
+];
+
+// ★ GAS WebApp エンドポイント（デプロイ後にここを書き換える）
+const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyiag6-s94bez5ZclN5b1-T54ygJzN7E7Dxs4FjUo1ewWIHfubB6TKWc22YX6-tnLOQ/exec";
+
+// ─── タスクがその日に表示すべきか判定 ────────────────────────────────────────
+function taskMatchesDate(task, dateKey) {
+  const r = task.repeat;
+  // 日付指定タスク（繰り返しなし・特定日）
+  if (task.dateKey) return task.dateKey === dateKey;
+  // 繰り返しなし・dateKey未設定 → 今日のみ
+  if (!r || r.type === "none") return dateKey === todayKey();
+
+  const tgt = keyToDate(dateKey);
+  const tgtDow = tgt.getDay();
+  const today = keyToDate(todayKey());
+
+  if (r.type === "daily") {
+    const diff = Math.round((tgt - today) / 86400000);
+    return diff >= 0 && diff % (r.interval||1) === 0;
+  }
+  if (r.type === "weekday") return tgtDow >= 1 && tgtDow <= 5;
+  if (r.type === "weekly") {
+    const days = r.days?.length ? r.days : [today.getDay()];
+    if (!days.includes(tgtDow)) return false;
+    const diffW = Math.floor(Math.round((tgt - today) / 86400000) / 7);
+    return diffW >= 0 && diffW % (r.interval||1) === 0;
+  }
+  if (r.type === "monthly") return tgt.getDate() === today.getDate();
+  if (r.type === "yearly") return tgt.getDate() === today.getDate() && tgt.getMonth() === today.getMonth();
+  return false;
+}
+
+// 完了状態はdateKey別に管理
+function getDoneKey(taskId, dateKey) { return `done:${taskId}:${dateKey}`; }
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
+function App(){
+  const saved = loadData();
+  const [tab, setTab]           = useState("timeline");
+  const [tasks, setTasks]       = useState(saved?.tasks || DEFAULT_TASKS);
+  const [doneMap, setDoneMap]   = useState(saved?.doneMap || {}); // {`done:id:dateKey`: bool}
+  const [googleTasks, setGoogleTasks]   = useState([]);
+  const [googleSyncStatus, setGoogleSyncStatus] = useState("idle");
+  const [icalRaw, setIcalRaw]   = useState(null); // 生iCalテキストをキャッシュ
+  const [later, setLater]       = useState(saved?.later || DEFAULT_LATER);
+  const [categories, setCategories] = useState(saved?.categories || DEFAULT_CATEGORIES);
+  const [wakeTime, setWakeTime] = useState(saved?.settings?.wakeTime || "07:00");
+  const [sleepTime, setSleepTime] = useState(saved?.settings?.sleepTime || "23:00");
+  const [freeThreshold, setFreeThreshold] = useState(saved?.settings?.freeThreshold || 20);
+  const [themeId, setThemeId]   = useState(saved?.settings?.themeId || "craft");
+  const [now, setNow]           = useState(nowMin());
+  const [modal, setModal]       = useState(null);
+
+  // ★ 選択日付（dateKey形式）
+  const [selectedDateKey, setSelectedDateKey] = useState(todayKey());
+
+  C = THEMES.find(t => t.id === themeId) || THEMES[0];
+
+  // Google同期
+  const fetchGoogleCalendar = useCallback(async (dateKey) => {
+    const target = dateKey || selectedDateKey;
+    setGoogleSyncStatus("loading");
+    const icalUrl = "https://calendar.google.com/calendar/ical/sa712ys%40gmail.com/private-11d3de61a5a57165c6b0bf9419905b9f/basic.ics";
+    const proxies = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(icalUrl)}`,
+      `https://corsproxy.io/?${encodeURIComponent(icalUrl)}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(icalUrl)}`,
+      `https://thingproxy.freeboard.io/fetch/${icalUrl}`,
+    ];
+    const fetchWithTimeout = (url, ms) => Promise.race([
+      fetch(url),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")),ms))
+    ]);
+    let text = icalRaw; // キャッシュがあれば再利用
+    if (!text) {
+      let lastErr = null;
+      for (const proxyUrl of proxies) {
+        try {
+          const res = await fetchWithTimeout(proxyUrl, 8000);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          text = await res.text();
+          if (!text.includes("BEGIN:VCALENDAR")) throw new Error("Invalid iCal");
+          setIcalRaw(text);
+          break;
+        } catch(e) { console.warn(`プロキシ失敗:`, e.message); lastErr = e; }
+      }
+      if (!text) { console.error("全プロキシ失敗:", lastErr); setGoogleSyncStatus("error"); return; }
+    }
+    const parsed = parseICal(text, keyToDate(target));
+    setGoogleTasks(parsed);
+    setGoogleSyncStatus("ok");
+  }, [selectedDateKey, icalRaw]);
+
+  // 日付が変わったらGoogleタスクを再パース（キャッシュ済みiCalから）
+  useEffect(() => {
+    if (icalRaw) {
+      const parsed = parseICal(icalRaw, keyToDate(selectedDateKey));
+      setGoogleTasks(parsed);
+    }
+  }, [selectedDateKey]);
+
+  useEffect(() => {
+    saveData({tasks, doneMap, later, categories, settings:{wakeTime,sleepTime,freeThreshold,themeId}});
+  }, [tasks, doneMap, later, categories, wakeTime, sleepTime, freeThreshold, themeId]);
+
+  useEffect(() => {
+    fetchGoogleCalendar(selectedDateKey);
+    const iv = setInterval(() => setNow(nowMin()), 30000);
+    const calIv = setInterval(() => { setIcalRaw(null); fetchGoogleCalendar(selectedDateKey); }, 60000);
+    return () => { clearInterval(iv); clearInterval(calIv); };
+  }, []);
+
+  // 選択日のタスクを絞り込む
+  const dayTasks = tasks.filter(t => taskMatchesDate(t, selectedDateKey));
+
+  // 完了状態を取得
+  const getTaskDone = (task) => doneMap[getDoneKey(task.id, selectedDateKey)] ?? task.done;
+  const setTaskDone = (task, val) => setDoneMap(p => ({...p, [getDoneKey(task.id, selectedDateKey)]: val}));
+
+  const combinedTasks = [
+    ...dayTasks.map(t => ({...t, done: getTaskDone(t)})),
+    ...googleTasks,
+  ];
+
+  useEffect(() => { document.body.style.background = C.bg; }, [themeId]);
+
+  const getCat = (id) => categories.find(c => c.id === id) || {name:"その他",color:"#94a3b8",bg:"#94a3b822"};
+  const isToday = selectedDateKey === todayKey();
+  const doneCount = combinedTasks.filter(t => t.done).length;
+  const pinnedTasks = combinedTasks.filter(t => t.pinned);
+  const pinnedLater = later.filter(t => t.pinned);
+
+  const handleToggleDone = (task) => {
+    if (task.isGoogle) {
+      setGoogleTasks(p => p.map(t => t.id===task.id ? {...t,done:!t.done} : t));
+    } else {
+      setTaskDone(task, !getTaskDone(task));
+    }
+  };
+  const handleTogglePin = (task) => {
+    if (task.isGoogle) return;
+    setTasks(p => p.map(t => t.id===task.id ? {...t,pinned:!t.pinned} : t));
+  };
+  const handleDelete = (task) => {
+    if (task.isGoogle) { alert("Googleカレンダーの予定はカレンダーアプリ側から削除してください"); return; }
+    setTasks(p => p.filter(t => t.id !== task.id));
+  };
+
+  const handleSyncNow = () => { setIcalRaw(null); fetchGoogleCalendar(selectedDateKey); };
+
+  // ★ スプレッドシートへの同期
+  const handleSyncSpreadsheet = async () => {
+    if (GAS_ENDPOINT === "ここにGASのデプロイURLを貼る") {
+      alert("設定が必要です\nコード内の GAS_ENDPOINT にGASのデプロイURLを貼ってください。");
+      return;
+    }
+    try {const form = document.createElement("form");
+form.method = "POST";
+form.action = GAS_ENDPOINT;
+form.target = "hidden_iframe"; // 画面遷移させない
+
+const input = document.createElement("input");
+input.type  = "hidden";
+input.name  = "payload";
+input.value = JSON.stringify(payload);
+form.appendChild(input);
+
+// 見えないiframeを作って送信先にする
+let iframe = document.getElementById("hidden_iframe");
+if (!iframe) {
+  iframe = document.createElement("iframe");
+  iframe.name = "hidden_iframe";
+  iframe.id   = "hidden_iframe";
+  iframe.style.display = "none";
+  document.body.appendChild(iframe);
+}
+
+document.body.appendChild(form);
+form.submit();
+document.body.removeChild(form);
+
+alert("✅ スプレッドシートに送信しました！\n（数秒後にスプシを確認してください）");
+};
+
+  return (
+    <div style={{background:C.bg,minHeight:"100vh",maxWidth:430,margin:"0 auto",color:C.text,fontFamily:"-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif",paddingBottom:90}}>
+      <Header
+        tab={tab} doneCount={doneCount} totalCount={combinedTasks.length}
+        pinnedTasks={pinnedTasks} pinnedLater={pinnedLater} getCat={getCat}
+        setTab={setTab} selectedDateKey={selectedDateKey} setSelectedDateKey={setSelectedDateKey}
+      />
+
+      {tab==="timeline" && (
+        <TimelineView
+          tasks={combinedTasks} now={isToday ? now : -1}
+          wakeTime={wakeTime} sleepTime={sleepTime} freeThreshold={freeThreshold}
+          getCat={getCat} googleSyncStatus={googleSyncStatus} onSyncNow={handleSyncNow}
+          onToggleDone={handleToggleDone} onTogglePin={handleTogglePin} onDelete={handleDelete}
+          onEdit={t => { if(t.isGoogle){alert("Googleカレンダーの予定は編集できません");return;} setModal({type:"task",data:t}); }}
+        />
+      )}
+      {tab==="later" && (
+        <LaterView items={later} setLater={setLater} getCat={getCat}
+          onPromote={item => {
+            setTasks(p=>[...p,{id:Date.now(),title:item.title,time:toTime(nowMin()+30),duration:30,categoryId:item.categoryId,done:false,pinned:false,dateKey:selectedDateKey,repeat:{type:"none",interval:1,end:{type:"none"}},note:""}]);
+            setLater(p=>p.filter(x=>x.id!==item.id));
+          }}
+          onEdit={item=>setModal({type:"later",data:item})}
+        />
+      )}
+      {tab==="stats"    && <StatsView tasks={combinedTasks} categories={categories}/>}
+      {tab==="settings" && (
+        <SettingsView wakeTime={wakeTime} setWakeTime={setWakeTime}
+          sleepTime={sleepTime} setSleepTime={setSleepTime}
+          freeThreshold={freeThreshold} setFreeThreshold={setFreeThreshold}
+          categories={categories} setCategories={setCategories}
+          themeId={themeId} setThemeId={setThemeId}
+          googleSyncStatus={googleSyncStatus} onSyncNow={handleSyncNow}
+          onSyncSpreadsheet={handleSyncSpreadsheet}
+          onEditCat={c=>setModal({type:"category",data:c})} onAddCat={()=>setModal({type:"category",data:null})}
+        />
+      )}
+
+      {(tab==="timeline"||tab==="later") && (
+        <button onClick={()=>setModal({type:tab==="timeline"?"task":"later",data:null})}
+          style={{position:"fixed",bottom:90,right:20,width:52,height:52,borderRadius:"50%",
+          background:`linear-gradient(135deg,${C.accent},${C.accent}bb)`,border:"none",color:"#fff",
+          boxShadow:`0 4px 20px ${C.accentGlow}`,cursor:"pointer",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <Icon name="plus" size={22} color="#fff"/>
+        </button>
+      )}
+
+      <BottomNav tab={tab} setTab={setTab}/>
+
+      {modal?.type==="task" && (
+        <TaskModal initial={modal.data} categories={categories} selectedDateKey={selectedDateKey}
+          onClose={()=>setModal(null)}
+          onSave={t=>{if(t.id)setTasks(p=>p.map(x=>x.id===t.id?t:x));else setTasks(p=>[...p,{...t,id:Date.now()}]);setModal(null);}}
+        />
+      )}
+      {modal?.type==="later" && (
+        <LaterModal initial={modal.data} categories={categories} onClose={()=>setModal(null)}
+          onSave={item=>{if(item.id)setLater(p=>p.map(x=>x.id===item.id?item:x));else setLater(p=>[...p,{...item,id:Date.now()}]);setModal(null);}}
+        />
+      )}
+      {modal?.type==="calendar" && (
+        <CalendarModal selectedDateKey={selectedDateKey}
+          onClose={()=>setModal(null)}
+          onSelect={key=>{setSelectedDateKey(key);setModal(null);}}
+        />
+      )}
+      {modal?.type==="category" && (
+        <CategoryModal initial={modal.data} onClose={()=>setModal(null)}
+          onSave={cat=>{if(cat.id&&categories.find(c=>c.id===cat.id))setCategories(p=>p.map(c=>c.id===cat.id?cat:c));else setCategories(p=>[...p,{...cat,id:Date.now().toString()}]);setModal(null);}}
+          onDelete={id=>{setCategories(p=>p.filter(c=>c.id!==id));setModal(null);}}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── HEADER ───────────────────────────────────────────────────────────────────
+function Header({tab,doneCount,totalCount,pinnedTasks,pinnedLater,getCat,setTab,selectedDateKey,setSelectedDateKey}){
+  const titles={timeline:"タイムライン",later:"あとでやる",stats:"統計",settings:"設定"};
+  const selDate = keyToDate(selectedDateKey);
+  const isToday = selectedDateKey === todayKey();
+  const [showCalModal, setShowCalModal] = useState(false);
+
+  // 週ナビ：今日を中心に前後3日
+  const weekDays = Array.from({length:7},(_,i)=>addDays(new Date(), i-3));
+
+  return (
+    <div style={{padding:"16px 16px 0",position:"sticky",top:0,zIndex:50,background:C.bg,borderBottom:`1px solid ${C.border}`}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:15,fontWeight:800,letterSpacing:-0.5}}>{titles[tab]}</div>
+        {tab==="timeline" && (
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{background:C.accentDim,border:`1px solid ${C.accentGlow}`,borderRadius:20,padding:"4px 12px",fontSize:12,color:C.accent,fontWeight:700}}>{doneCount}/{totalCount}</div>
+            {!isToday && (
+              <button onClick={()=>setSelectedDateKey(todayKey())}
+                style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:C.green,background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:10,padding:"4px 9px",cursor:"pointer",fontWeight:700}}>
+                <Icon name="home" size={11} color={C.green}/>今日へ
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ★ 日付ナビゲーター（タイムラインタブのみ） */}
+      {tab==="timeline" && (
+        <div style={{marginBottom:10}}>
+          {/* 週スクロール */}
+          <div style={{display:"flex",gap:4,marginBottom:8,alignItems:"center"}}>
+            <button onClick={()=>setSelectedDateKey(dateToKey(addDays(keyToDate(selectedDateKey),-1)))}
+              style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <Icon name="chevL" size={14} color={C.textSub}/>
+            </button>
+            <div style={{flex:1,display:"flex",gap:4,overflowX:"auto",justifyContent:"center"}}>
+              {weekDays.map(d=>{
+                const key=dateToKey(d);
+                const isSelected=key===selectedDateKey;
+                const isTod=key===todayKey();
+                return(
+                  <button key={key} onClick={()=>setSelectedDateKey(key)} style={{
+                    flexShrink:0,width:38,display:"flex",flexDirection:"column",alignItems:"center",gap:2,
+                    padding:"5px 2px",borderRadius:10,cursor:"pointer",
+                    background:isSelected?C.accent:"transparent",
+                    border:`1px solid ${isSelected?C.accent:isTod?C.accentGlow:C.border}`,
+                  }}>
+                    <span style={{fontSize:9,fontWeight:600,color:isSelected?"#fff":C.textSub}}>{WEEKDAY_LABELS[d.getDay()]}</span>
+                    <span style={{fontSize:15,fontWeight:800,color:isSelected?"#fff":isTod?C.accent:C.text}}>{d.getDate()}</span>
+                    {isTod&&!isSelected&&<div style={{width:4,height:4,borderRadius:"50%",background:C.accent}}/>}
+                    {!isTod&&<div style={{height:4}}/>}
+                  </button>
+                );
+              })}
+            </div>
+            <button onClick={()=>setSelectedDateKey(dateToKey(addDays(keyToDate(selectedDateKey),1)))}
+              style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <Icon name="chevR" size={14} color={C.textSub}/>
+            </button>
+            {/* カレンダーアイコン → 月間カレンダーモーダル */}
+            <button onClick={()=>setShowCalModal(true)}
+              style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${C.border}`,background:C.surface,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <Icon name="calendar" size={14} color={C.accent}/>
+            </button>
+          </div>
+          {/* 選択日の表示 */}
+          <div style={{fontSize:11,color:C.textSub,fontWeight:600,textAlign:"center",letterSpacing:1}}>
+            {selDate.toLocaleDateString("ja-JP",{year:"numeric",month:"long",day:"numeric",weekday:"short"})}
+            {isToday&&<span style={{marginLeft:6,color:C.accent,fontSize:10,background:C.accentDim,borderRadius:6,padding:"1px 6px"}}>今日</span>}
+          </div>
+        </div>
+      )}
+
+      {/* ピン留めバー */}
+      {[...pinnedTasks,...pinnedLater].length>0 && (
+        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:10}}>
+          {pinnedTasks.map(t=>(
+            <div key={t.id} onClick={()=>setTab("timeline")} style={{flexShrink:0,display:"flex",alignItems:"center",gap:5,background:t.done?C.greenDim:C.accentDim,border:`1px solid ${t.done?C.green+"44":C.accentGlow}`,borderRadius:10,padding:"4px 10px",fontSize:11,color:t.done?C.green:C.accent,cursor:"pointer",fontWeight:600}}>
+              <Icon name="pinFill" size={10} color={t.done?C.green:C.accent}/>{t.time} {t.title}
+            </div>
+          ))}
+          {pinnedLater.map(t=>(
+            <div key={t.id} onClick={()=>setTab("later")} style={{flexShrink:0,display:"flex",alignItems:"center",gap:5,background:C.amberDim,border:`1px solid ${C.amber}44`,borderRadius:10,padding:"4px 10px",fontSize:11,color:C.amber,cursor:"pointer",fontWeight:600}}>
+              <Icon name="pinFill" size={10} color={C.amber}/>{t.title}
+            </div>
+          ))}
+        </div>
+      )}
+      {showCalModal && <CalendarModal selectedDateKey={selectedDateKey} onClose={()=>setShowCalModal(false)} onSelect={key=>{setSelectedDateKey(key);setShowCalModal(false);}}/>}
+    </div>
+  );
+}
+
+// ─── MONTH CALENDAR MODAL ─────────────────────────────────────────────────────
+function CalendarModal({selectedDateKey,onClose,onSelect}){
+  const [viewYear, setViewYear]   = useState(keyToDate(selectedDateKey).getFullYear());
+  const [viewMonth, setViewMonth] = useState(keyToDate(selectedDateKey).getMonth());
+
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const lastDay  = new Date(viewYear, viewMonth+1, 0);
+  const startDow = firstDay.getDay(); // 何曜日始まり
+  const cells = [];
+  for(let i=0;i<startDow;i++) cells.push(null);
+  for(let d=1;d<=lastDay.getDate();d++) cells.push(new Date(viewYear,viewMonth,d));
+
+  const prevMonth=()=>{if(viewMonth===0){setViewYear(y=>y-1);setViewMonth(11);}else setViewMonth(m=>m-1);};
+  const nextMonth=()=>{if(viewMonth===11){setViewYear(y=>y+1);setViewMonth(0);}else setViewMonth(m=>m+1);};
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"#00000080",zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:C.surface,borderRadius:"22px 22px 0 0",padding:"20px 16px 32px",width:"100%",maxWidth:430,margin:"0 auto",boxSizing:"border-box"}}>
+        {/* ヘッダー */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <button onClick={prevMonth} style={{width:32,height:32,borderRadius:"50%",border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="chevL" size={16} color={C.text}/></button>
+          <div style={{fontSize:16,fontWeight:800}}>{viewYear}年{viewMonth+1}月</div>
+          <button onClick={nextMonth} style={{width:32,height:32,borderRadius:"50%",border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="chevR" size={16} color={C.text}/></button>
+        </div>
+        {/* 曜日ヘッダー */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:6}}>
+          {WEEKDAY_LABELS.map((d,i)=><div key={i} style={{textAlign:"center",fontSize:11,fontWeight:700,color:i===0?C.red:i===6?C.accent:C.textSub,padding:"4px 0"}}>{d}</div>)}
+        </div>
+        {/* 日付グリッド */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+          {cells.map((d,i)=>{
+            if(!d) return <div key={i}/>;
+            const key=dateToKey(d);
+            const isSelected=key===selectedDateKey;
+            const isTod=key===todayKey();
+            const dow=d.getDay();
+            return(
+              <button key={i} onClick={()=>onSelect(key)} style={{
+                padding:"7px 0",borderRadius:10,border:`1px solid ${isSelected?C.accent:isTod?C.accentGlow:"transparent"}`,
+                background:isSelected?C.accent:isTod?C.accentDim:"transparent",
+                cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,
+              }}>
+                <span style={{fontSize:14,fontWeight:700,color:isSelected?"#fff":isTod?C.accent:dow===0?C.red:dow===6?C.accent:C.text}}>{d.getDate()}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{marginTop:16,display:"flex",justifyContent:"center"}}>
+          <button onClick={()=>onSelect(todayKey())} style={{fontSize:12,fontWeight:700,color:C.accent,background:C.accentDim,border:`1px solid ${C.accentGlow}`,borderRadius:10,padding:"7px 20px",cursor:"pointer"}}>
+            今日に戻る
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TIMELINE VIEW ────────────────────────────────────────────────────────────
+function TimelineView({tasks,now,wakeTime,sleepTime,freeThreshold,getCat,googleSyncStatus,onSyncNow,onToggleDone,onTogglePin,onDelete,onEdit}){
+  const wakeMin=toMin(wakeTime),sleepMin=toMin(sleepTime);
+  const isToday=now>=0;
+  const pct=isToday?Math.max(0,Math.min(100,((now-wakeMin)/(sleepMin-wakeMin))*100)):0;
+  const nowRef=useRef(null);
+  useEffect(()=>{setTimeout(()=>nowRef.current?.scrollIntoView({behavior:"smooth",block:"center"}),200);},[]);
+
+  const sorted=[...tasks].sort((a,b)=>toMin(a.time)-toMin(b.time));
+  const withCols=assignColumns(sorted);
+  const items=[];
+  let cursor=wakeMin,i=0;
+  while(i<withCols.length){
+    const t=withCols[i],tMin=toMin(t.time);
+    if(tMin-cursor>=freeThreshold)items.push({type:"free",start:cursor,end:tMin});
+    const group=[t];let maxEnd=tMin+t.duration,j=i+1;
+    while(j<withCols.length&&toMin(withCols[j].time)<maxEnd){group.push(withCols[j]);maxEnd=Math.max(maxEnd,toMin(withCols[j].time)+withCols[j].duration);j++;}
+    items.push({type:"group",tasks:group,start:tMin,end:maxEnd});
+    cursor=maxEnd;i=j;
+  }
+  if(sleepMin-cursor>=freeThreshold)items.push({type:"free",start:cursor,end:sleepMin});
+  const googleCount=tasks.filter(t=>t.isGoogle).length;
+
+  return(
+    <div style={{padding:"0 0 20px"}}>
+      {/* 同期ステータス */}
+      <div style={{padding:"6px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          {googleSyncStatus==="loading"&&<span style={{fontSize:11,color:C.textSub,display:"flex",alignItems:"center",gap:4}}><Icon name="sync" size={11} color={C.textSub}/>同期中…</span>}
+          {googleSyncStatus==="ok"&&googleCount>0&&<span style={{fontSize:11,color:"#4285F4",display:"flex",alignItems:"center",gap:4}}><Icon name="calendar" size={11} color="#4285F4"/>🗓️ {googleCount}件</span>}
+          {googleSyncStatus==="ok"&&googleCount===0&&<span style={{fontSize:11,color:C.textSub}}>Google予定なし</span>}
+          {googleSyncStatus==="error"&&<span style={{fontSize:11,color:C.red}}>⚠️ Google同期失敗</span>}
+        </div>
+        <button onClick={onSyncNow} style={{fontSize:10,color:C.textSub,background:"transparent",border:`1px solid ${C.border}`,borderRadius:8,padding:"2px 8px",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
+          <Icon name="sync" size={10} color={C.textSub}/>更新
+        </button>
+      </div>
+      {/* プログレスバー（今日のみ） */}
+      {isToday&&(
+        <div style={{padding:"10px 16px 8px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.textSub,marginBottom:5}}>
+            <span style={{display:"flex",alignItems:"center",gap:4}}><Icon name="sun" size={13} color={C.amber}/>{wakeTime}</span>
+            <span style={{color:C.accent,fontWeight:700,fontSize:12}}>{toTime(now)}</span>
+            <span style={{display:"flex",alignItems:"center",gap:4}}>{sleepTime}<Icon name="moon" size={13} color={C.textSub}/></span>
+          </div>
+          <div style={{background:C.surface,borderRadius:8,height:5,overflow:"hidden"}}>
+            <div style={{width:`${pct}%`,height:"100%",borderRadius:8,background:`linear-gradient(90deg,${C.accent},${C.accent}bb)`,transition:"width 1s"}}/>
+          </div>
+        </div>
+      )}
+      <div style={{padding:"8px 16px 0"}}>
+        {items.length===0&&<div style={{textAlign:"center",padding:"60px 20px",color:C.textSub}}><Icon name="calendar" size={48} color={C.textSub}/><div style={{marginTop:12,fontSize:13}}>この日のタスクはありません<br/>＋ボタンで追加できます</div></div>}
+        {items.map((item,idx)=>{
+          if(item.type==="free"){
+            const isCurrent=isToday&&now>=item.start&&now<item.end;
+            return(<div key={idx} style={{marginBottom:8}}>{isCurrent&&<div ref={nowRef}/>}<FreeSlot start={item.start} end={item.end} isCurrent={isCurrent} now={now}/></div>);
+          }
+          const isNowG=isToday&&now>=item.start&&now<item.end;
+          return(
+            <div key={idx} style={{marginBottom:8}}>
+              {isNowG&&<div ref={nowRef}/>}
+              <div style={{fontSize:11,color:C.textSub,marginBottom:4,paddingLeft:2,display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontWeight:700,color:isNowG?C.accent:C.textSub}}>{toTime(item.start)}</span>
+                {isNowG&&<span style={{width:7,height:7,borderRadius:"50%",background:C.accent,display:"inline-block",boxShadow:`0 0 6px ${C.accent}`}}/>}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                {item.tasks.map(task=>(
+                  <TaskCard key={task.id} task={task} isOverlapped={item.tasks.length>1}
+                    isActive={isToday&&now>=toMin(task.time)&&now<toMin(task.time)+task.duration}
+                    isPast={isToday&&toMin(task.time)+task.duration<now}
+                    getCat={getCat}
+                    onToggleDone={()=>onToggleDone(task)}
+                    onTogglePin={()=>onTogglePin(task)}
+                    onDelete={()=>onDelete(task)}
+                    onEdit={()=>onEdit(task)}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function FreeSlot({start,end,isCurrent,now}){
+  const dur=end-start,pct=isCurrent?Math.min(100,((now-start)/dur)*100):0;
+  return(
+    <div style={{border:`1px dashed ${isCurrent?C.accent+"60":C.borderStrong}`,borderRadius:14,padding:"10px 14px",background:isCurrent?C.accentDim:"transparent",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div>
+        <div style={{fontSize:11,color:isCurrent?C.accent:C.textSub,fontWeight:600}}>空き時間</div>
+        <div style={{fontSize:20,fontWeight:800,color:isCurrent?C.accent:C.textSub,letterSpacing:-0.5}}>{fmtDur(dur)}</div>
+        <div style={{fontSize:11,color:C.textSub}}>{toTime(start)} 〜 {toTime(end)}</div>
+      </div>
+      {isCurrent&&(
+        <div style={{width:40,height:40,borderRadius:"50%",border:`3px solid ${C.accentGlow}`,position:"relative",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{fontSize:10,color:C.accent,fontWeight:700}}>{Math.round(pct)}%</div>
+          <svg style={{position:"absolute",inset:"-3px",width:46,height:46}} viewBox="0 0 46 46">
+            <circle cx="23" cy="23" r="20" fill="none" stroke={C.accent} strokeWidth="3" strokeDasharray={`${pct/100*125.7} 125.7`} strokeLinecap="round" transform="rotate(-90 23 23)" opacity="0.8"/>
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskCard({task,isOverlapped,isActive,isPast,getCat,onToggleDone,onTogglePin,onDelete,onEdit}){
+  const [open,setOpen]=useState(false);
+  const cat=getCat(task.categoryId);
+  const rep=task.isGoogle?null:repeatLabel(task.repeat);
+  const ga="#4285F4";
+  const border=task.isGoogle?(isActive?`${ga}99`:`${ga}44`):(isActive?C.accent+"66":C.border);
+  const shadow=task.isGoogle?(isActive?`0 0 16px ${ga}44`:"none"):(isActive?`0 0 16px ${C.accentGlow}`:"none");
+  return(
+    <div style={{flex:1,minWidth:0,borderRadius:14,overflow:"hidden",background:C.surface,border:`1px solid ${border}`,boxShadow:shadow,opacity:isPast&&task.done?0.45:1,transition:"all 0.2s"}}>
+      {task.isGoogle&&<div style={{height:3,background:`linear-gradient(90deg,${ga},${ga}88)`}}/>}
+      <div style={{padding:isOverlapped?"10px":"12px 14px",cursor:"pointer"}} onClick={()=>setOpen(o=>!o)}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+          <div style={{fontSize:12,fontWeight:700,color:isActive?(task.isGoogle?ga:C.accent):C.textSub,display:"flex",alignItems:"center",gap:4}}>
+            <Icon name="clock" size={11} color={isActive?(task.isGoogle?ga:C.accent):C.textSub}/>{task.time}
+            {!isOverlapped&&<span style={{fontWeight:400,color:C.textSub}}> ({fmtDur(task.duration)})</span>}
+          </div>
+          <button onClick={e=>{e.stopPropagation();onToggleDone();}} style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${task.done?C.green:C.textFaint}`,background:task.done?C.green:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            {task.done&&<Icon name="checkmark" size={11} color="#000"/>}
+          </button>
+        </div>
+        <div style={{fontSize:isOverlapped?13:15,fontWeight:600,color:task.done?C.textSub:C.text,textDecoration:task.done?"line-through":"none",marginBottom:6,lineHeight:1.3}}>{task.title}</div>
+        <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+          <span style={{fontSize:10,fontWeight:700,color:cat.color,background:cat.bg,borderRadius:6,padding:"2px 7px"}}>{cat.name}</span>
+          {rep&&<span style={{fontSize:10,color:C.textSub,display:"flex",alignItems:"center",gap:2}}><Icon name="repeat" size={10} color={C.textSub}/>{rep}</span>}
+          {task.pinned&&<Icon name="pinFill" size={12} color={C.pink}/>}
+          {isActive&&<span style={{fontSize:10,color:task.isGoogle?ga:C.accent,background:task.isGoogle?`${ga}20`:C.accentDim,borderRadius:6,padding:"2px 6px",fontWeight:700}}>進行中</span>}
+          {task.isGoogle&&<span style={{fontSize:10,color:ga,display:"flex",alignItems:"center",gap:2}}><Icon name="calendar" size={10} color={ga}/>Google</span>}
+          {task.dateKey&&!task.isGoogle&&<span style={{fontSize:10,color:C.amber,background:C.amberDim,borderRadius:6,padding:"2px 5px"}}>日付指定</span>}
+          {task.remindMinutes!=null&&!task.isGoogle&&<span style={{fontSize:10,color:C.green,background:C.greenDim,borderRadius:6,padding:"2px 5px"}}>🔔{task.remindMinutes}分前</span>}
+        </div>
+      </div>
+      {open&&(
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"8px 10px",display:"flex",gap:6,flexWrap:"wrap"}}>
+          {!task.isGoogle&&<Chip icon="edit" label="編集" color={C.accent} onClick={onEdit}/>}
+          {!task.isGoogle&&<Chip icon={task.pinned?"pinFill":"pin"} label={task.pinned?"外す":"ピン"} color={C.pink} onClick={onTogglePin}/>}
+          {!task.isGoogle&&<Chip icon="trash" label="削除" color={C.red} onClick={onDelete}/>}
+          {task.isGoogle&&<span style={{fontSize:11,color:C.textSub,padding:"4px 6px"}}>📅 Googleの予定は編集・削除できません</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Chip({icon,label,color,onClick}){
+  return<button onClick={onClick} style={{display:"flex",alignItems:"center",gap:4,background:color+"22",border:`1px solid ${color}44`,color,borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}><Icon name={icon} size={12} color={color}/>{label}</button>;
+}
+
+// ─── LATER VIEW ───────────────────────────────────────────────────────────────
+function LaterView({items,setLater,getCat,onPromote,onEdit}){
+  return(
+    <div style={{padding:16}}>
+      <div style={{fontSize:12,color:C.textSub,marginBottom:14,lineHeight:1.6}}>今すぐじゃないけど、忘れたくないこと。</div>
+      {items.map(item=>{
+        const cat=getCat(item.categoryId);
+        return(
+          <div key={item.id} style={{marginBottom:10,borderRadius:14,background:C.surface,border:`1px solid ${C.border}`,padding:"12px 14px"}}>
+            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+              <span style={{fontSize:10,fontWeight:700,color:cat.color,background:cat.bg,borderRadius:6,padding:"2px 7px"}}>{cat.name}</span>
+              {item.pinned&&<Icon name="pinFill" size={12} color={C.pink}/>}
+            </div>
+            <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>{item.title}</div>
+            <div style={{display:"flex",gap:6}}>
+              <Chip icon="promote" label="今日やる" color={C.green} onClick={()=>onPromote(item)}/>
+              <Chip icon={item.pinned?"pinFill":"pin"} label={item.pinned?"外す":"ピン"} color={C.pink} onClick={()=>setLater(p=>p.map(x=>x.id===item.id?{...x,pinned:!x.pinned}:x))}/>
+              <Chip icon="edit" label="編集" color={C.accent} onClick={()=>onEdit(item)}/>
+              <Chip icon="trash" label="" color={C.red} onClick={()=>setLater(p=>p.filter(x=>x.id!==item.id))}/>
+            </div>
+          </div>
+        );
+      })}
+      {items.length===0&&<div style={{textAlign:"center",padding:"60px 20px",color:C.textSub}}><Icon name="later" size={48} color={C.textSub}/><div style={{marginTop:12}}>あとでやるリストは空です</div></div>}
+    </div>
+  );
+}
+
+// ─── STATS VIEW ───────────────────────────────────────────────────────────────
+function StatsView({tasks,categories}){
+  const done=tasks.filter(t=>t.done).length,total=tasks.length;
+  const rate=total>0?Math.round(done/total*100):0;
+  const buckets=Array.from({length:18},(_,i)=>({h:i+6,n:tasks.filter(t=>parseInt(t.time.split(":")[0])===i+6&&t.done).length}));
+  const maxB=Math.max(...buckets.map(b=>b.n),1);
+  return(
+    <div style={{padding:16}}>
+      <div style={{background:C.surface,borderRadius:18,padding:"16px 18px",marginBottom:12}}>
+        <div style={{textAlign:"center",padding:"8px 0 16px"}}>
+          <div style={{fontSize:56,fontWeight:900,color:C.accent,letterSpacing:-2}}>{rate}%</div>
+          <div style={{color:C.textSub,fontSize:13}}>今日の完了率 ({done}/{total})</div>
+          <div style={{marginTop:14,background:C.border,borderRadius:8,height:8,overflow:"hidden"}}>
+            <div style={{width:`${rate}%`,height:"100%",borderRadius:8,background:`linear-gradient(90deg,${C.accent},${C.accent}bb)`,transition:"width 1s"}}/>
+          </div>
+        </div>
+      </div>
+      <div style={{background:C.surface,borderRadius:18,padding:"16px 18px",marginBottom:12}}>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>カテゴリ別</div>
+        {categories.map(cat=>{
+          const ct=tasks.filter(t=>t.categoryId===cat.id);if(!ct.length)return null;
+          const cd=ct.filter(t=>t.done).length;
+          return(<div key={cat.id} style={{marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}><span style={{color:cat.color,fontWeight:600}}>{cat.name}</span><span style={{color:C.textSub}}>{cd}/{ct.length}</span></div><div style={{background:C.border,borderRadius:6,height:6,overflow:"hidden"}}><div style={{width:`${ct.length?cd/ct.length*100:0}%`,height:"100%",background:cat.color,borderRadius:6}}/></div></div>);
+        })}
+      </div>
+      <div style={{background:C.surface,borderRadius:18,padding:"16px 18px"}}>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>時間帯別完了数</div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:3,height:56}}>
+          {buckets.map(b=>(
+            <div key={b.h} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+              <div style={{width:"100%",borderRadius:3,minHeight:b.n?4:0,height:`${b.n/maxB*48}px`,background:b.n?C.accent:C.textFaint}}/>
+              {b.h%3===0&&<div style={{fontSize:8,color:C.textFaint}}>{b.h}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── SETTINGS VIEW ────────────────────────────────────────────────────────────
+function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold,setFreeThreshold,categories,setCategories,themeId,setThemeId,googleSyncStatus,onSyncNow,onSyncSpreadsheet,onEditCat,onAddCat}){
+  const statusLabel={idle:"未同期",loading:"同期中…",ok:"同期済み ✓",error:"失敗 ⚠️"}[googleSyncStatus]||"";
+  const statusColor={idle:C.textSub,loading:C.amber,ok:C.green,error:C.red}[googleSyncStatus]||C.textSub;
+  return(
+    <div style={{padding:16}}>
+      <SG title="カラーテーマ">
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {THEMES.map(t=>{
+            const active=themeId===t.id;
+            return(
+              <button key={t.id} onClick={()=>setThemeId(t.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:12,cursor:"pointer",background:active?C.accentDim:"transparent",border:`1.5px solid ${active?C.accent:C.border}`,textAlign:"left"}}>
+                <span style={{fontSize:22}}>{t.emoji}</span>
+                <div style={{flex:1}}><div style={{fontSize:14,fontWeight:700,color:active?C.accent:C.text}}>{t.name}</div><div style={{fontSize:11,color:C.textSub}}>{t.desc}</div></div>
+                <div style={{display:"flex",gap:3}}>{[t.accent,t.green,t.pink,t.red].map((col,i)=><div key={i} style={{width:10,height:10,borderRadius:"50%",background:col}}/>)}</div>
+                {active&&<div style={{width:18,height:18,borderRadius:"50%",background:C.accent,display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="checkmark" size={10} color="#fff"/></div>}
+              </button>
+            );
+          })}
+        </div>
+      </SG>
+      <SG title="起床・就寝">
+        <div style={{display:"flex",gap:12}}>
+          <div style={{flex:1}}><FL><Icon name="sun" size={12} color={C.amber}/> 起床</FL><input type="time" value={wakeTime} onChange={e=>setWakeTime(e.target.value)} style={inputSt()}/></div>
+          <div style={{flex:1}}><FL><Icon name="moon" size={12} color={C.textSub}/> 就寝</FL><input type="time" value={sleepTime} onChange={e=>setSleepTime(e.target.value)} style={inputSt()}/></div>
+        </div>
+      </SG>
+      <SG title="空き時間の表示">
+        <FL>何分以上の空き時間を表示するか</FL>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <input type="range" min={5} max={120} step={5} value={freeThreshold} onChange={e=>setFreeThreshold(Number(e.target.value))} style={{flex:1,accentColor:C.accent}}/>
+          <span style={{fontSize:16,fontWeight:700,color:C.accent,minWidth:50}}>{freeThreshold}分</span>
+        </div>
+      </SG>
+      <SG title="カテゴリ管理">
+        {categories.map(cat=>(
+          <div key={cat.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:12,height:12,borderRadius:"50%",background:cat.color}}/><span style={{fontSize:14,fontWeight:600}}>{cat.name}</span></div>
+            {cat.id!=="google"&&<Chip icon="edit" label="編集" color={C.accent} onClick={()=>onEditCat(cat)}/>}
+          </div>
+        ))}
+        <button onClick={onAddCat} style={{marginTop:10,width:"100%",padding:10,background:C.accentDim,border:`1px dashed ${C.accentGlow}`,borderRadius:10,color:C.accent,fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon name="plus" size={14} color={C.accent}/> カテゴリを追加
+        </button>
+      </SG>
+      <SG title="データ管理">
+        <div style={{padding:"10px 12px",borderRadius:10,background:"#4285F422",border:"1px solid #4285F444",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#4285F4"}}>🗓️ Googleカレンダー同期</div>
+            <span style={{fontSize:11,color:statusColor,fontWeight:600}}>{statusLabel}</span>
+          </div>
+          <div style={{fontSize:11,color:C.textSub,lineHeight:1.5,marginBottom:8}}>選択した日付のGoogle予定を自動で読み込みます。</div>
+          <button onClick={onSyncNow} style={{fontSize:11,color:"#4285F4",background:"#4285F422",border:"1px solid #4285F444",borderRadius:8,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontWeight:600}}>
+            <Icon name="sync" size={12} color="#4285F4"/>今すぐ同期
+          </button>
+        </div>
+        <div style={{padding:"10px 12px",borderRadius:10,background:C.greenDim,border:`1px solid ${C.green}44`}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:2}}>💾 自動保存オン</div>
+          <div style={{fontSize:11,color:C.textSub,lineHeight:1.5}}>手動で追加したタスク・設定は自動でこの端末に保存されます。</div>
+        </div>
+        <div style={{marginTop:10,padding:"10px 12px",borderRadius:10,background:C.amberDim,border:`1px solid ${C.amber}44`}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.amber,marginBottom:4}}>📤 スプレッドシートに同期</div>
+          <div style={{fontSize:11,color:C.textSub,lineHeight:1.5,marginBottom:8}}>今日のタスクをGASに送信します。送信後にLINE通知が有効になります。</div>
+          <button onClick={onSyncSpreadsheet} style={{fontSize:11,color:C.amber,background:C.amberDim,border:`1px solid ${C.amber}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontWeight:600}}>
+            <Icon name="sync" size={12} color={C.amber}/>今日のタスクを送信
+          </button>
+        </div>
+      </SG>
+    </div>
+  );
+}
+function SG({title,children}){return<div style={{background:C.surface,borderRadius:16,padding:"14px 16px",marginBottom:12}}><div style={{fontSize:12,fontWeight:700,color:C.textSub,marginBottom:10,textTransform:"uppercase",letterSpacing:1}}>{title}</div>{children}</div>;}
+function FL({children}){return<div style={{fontSize:11,color:C.textSub,marginBottom:5,display:"flex",alignItems:"center",gap:4}}>{children}</div>;}
+
+// ─── BOTTOM NAV ───────────────────────────────────────────────────────────────
+function BottomNav({tab,setTab}){
+  const items=[{id:"timeline",icon:"today",label:"今日"},{id:"later",icon:"later",label:"あとで"},{id:"stats",icon:"chart",label:"統計"},{id:"settings",icon:"gear",label:"設定"}];
+  return(
+    <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
+      {items.map(item=>(
+        <button key={item.id} onClick={()=>setTab(item.id)} style={{flex:1,padding:"11px 0 8px",border:"none",background:"transparent",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+          <Icon name={item.icon} size={22} color={tab===item.id?C.accent:C.textSub}/>
+          <span style={{fontSize:10,fontWeight:600,color:tab===item.id?C.accent:C.textSub}}>{item.label}</span>
+          {tab===item.id&&<div style={{width:18,height:2,background:C.accent,borderRadius:2}}/>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── MODALS ───────────────────────────────────────────────────────────────────
+function BottomSheet({title,onClose,children}){
+  return(
+    <div style={{position:"fixed",inset:0,background:"#00000080",zIndex:200,display:"flex",alignItems:"flex-end"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:C.surface,borderRadius:"22px 22px 0 0",padding:"22px 18px",width:"100%",maxHeight:"92vh",overflowY:"auto",boxSizing:"border-box"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+          <div style={{fontSize:17,fontWeight:800}}>{title}</div>
+          <button onClick={onClose} style={{background:C.border,border:"none",borderRadius:"50%",width:28,height:28,color:C.text,cursor:"pointer",fontSize:14}}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function Field({label,children,style:s}){return<div style={{marginBottom:14,...s}}><div style={{fontSize:11,color:C.textSub,marginBottom:5,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8}}>{label}</div>{children}</div>;}
+function Pill({label,active,color,bg,onClick}){return<button onClick={onClick} style={{padding:"5px 12px",borderRadius:10,fontSize:12,fontWeight:700,background:active?bg:"transparent",border:`1px solid ${active?color:C.border}`,color:active?color:C.textSub,cursor:"pointer"}}>{label}</button>;}
+
+function TaskModal({initial,categories,selectedDateKey,onClose,onSave}){
+  const visibleCats=categories.filter(c=>c.id!=="google");
+  const def={title:"",time:toTime(nowMin()+30),duration:30,categoryId:visibleCats[0]?.id||"other",done:false,pinned:false,dateKey:null,note:"",remindMinutes:10,repeat:{type:"none",interval:1,days:[],end:{type:"none"}}};
+  const [f,setF]=useState(initial?{...def,...initial}:def);
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const setR=(k,v)=>setF(p=>({...p,repeat:{...p.repeat,[k]:v}}));
+  const setRE=(k,v)=>setF(p=>({...p,repeat:{...p.repeat,end:{...p.repeat.end,[k]:v}}}));
+
+  // 日付指定モード
+  const isDateSpecific = f.repeat?.type === "none";
+
+  return(
+    <BottomSheet title={initial?"タスクを編集":"タスクを追加"} onClose={onClose}>
+      <Field label="タイトル"><input value={f.title} onChange={e=>set("title",e.target.value)} placeholder="何をしますか？" style={inputSt()} autoFocus/></Field>
+      <div style={{display:"flex",gap:10}}>
+        <Field label="開始時刻" style={{flex:1}}><input type="time" value={f.time} onChange={e=>set("time",e.target.value)} style={inputSt()}/></Field>
+        <Field label="所要時間(分)" style={{flex:1}}><input type="number" value={f.duration} min={5} max={480} step={5} onChange={e=>set("duration",Number(e.target.value))} style={inputSt()}/></Field>
+      </div>
+      <Field label="カテゴリ"><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{visibleCats.map(cat=><Pill key={cat.id} label={cat.name} active={f.categoryId===cat.id} color={cat.color} bg={cat.bg} onClick={()=>set("categoryId",cat.id)}/>)}</div></Field>
+      <Field label="繰り返し">
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+          {[{v:"none",l:"なし（日付指定）"},{v:"daily",l:"毎日"},{v:"weekday",l:"平日"},{v:"weekly",l:"毎週"},{v:"monthly",l:"毎月"},{v:"yearly",l:"毎年"}].map(o=><Pill key={o.v} label={o.l} active={f.repeat.type===o.v} color={C.accent} bg={C.accentDim} onClick={()=>setR("type",o.v)}/>)}
+        </div>
+        {isDateSpecific && (
+          <div style={{marginBottom:8}}>
+            <FL>表示する日付</FL>
+            <input type="date" value={f.dateKey||selectedDateKey} onChange={e=>set("dateKey",e.target.value)} style={inputSt()}/>
+          </div>
+        )}
+        {!isDateSpecific&&(
+          <>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <span style={{fontSize:11,color:C.textSub,minWidth:40}}>間隔</span>
+              <input type="range" min={1} max={30} value={f.repeat.interval} onChange={e=>setR("interval",Number(e.target.value))} style={{flex:1,accentColor:C.accent}}/>
+              <span style={{color:C.accent,fontWeight:700,minWidth:30}}>{f.repeat.interval}</span>
+            </div>
+            {f.repeat.type==="weekly"&&(
+              <div style={{display:"flex",gap:6,marginBottom:8}}>
+                {WEEKDAY_LABELS.map((d,i)=>{const sel=(f.repeat.days||[]).includes(i);return<button key={i} onClick={()=>setR("days",sel?f.repeat.days.filter(x=>x!==i):[...(f.repeat.days||[]),i])} style={{width:34,height:34,borderRadius:"50%",border:`1px solid ${sel?C.accent:C.border}`,background:sel?C.accentDim:"transparent",color:sel?C.accent:C.textSub,fontSize:12,fontWeight:700,cursor:"pointer"}}>{d}</button>;})}
+              </div>
+            )}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+              {[{v:"none",l:"終了なし"},{v:"until",l:"日付指定"},{v:"count",l:"回数指定"}].map(o=><Pill key={o.v} label={o.l} active={f.repeat.end?.type===o.v} color={C.accent} bg={C.accentDim} onClick={()=>setRE("type",o.v)}/>)}
+            </div>
+            {f.repeat.end?.type==="until"&&<input type="date" value={f.repeat.end.until||""} onChange={e=>setRE("until",e.target.value)} style={inputSt()}/>}
+            {f.repeat.end?.type==="count"&&<div style={{display:"flex",alignItems:"center",gap:10}}><input type="number" min={1} max={100} value={f.repeat.end.count||1} onChange={e=>setRE("count",Number(e.target.value))} style={{...inputSt(),width:80}}/><span style={{color:C.textSub,fontSize:13}}>回まで</span></div>}
+          </>
+        )}
+      </Field>
+      <Field label="メモ（任意）"><input value={f.note} onChange={e=>set("note",e.target.value)} placeholder="補足など" style={inputSt()}/></Field>
+      <Field label="📣 リマインド通知">
+        <div style={{fontSize:11,color:C.textSub,marginBottom:8}}>タスク開始の何分前にLINEで通知しますか？</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[{v:null,l:"なし"},{v:5,l:"5分前"},{v:10,l:"10分前"},{v:15,l:"15分前"},{v:30,l:"30分前"},{v:-1,l:"カスタム"}].map(o=>{
+            const isCustom = o.v === -1;
+            const active = isCustom
+              ? (f.remindMinutes != null && ![null,5,10,15,30].includes(f.remindMinutes))
+              : f.remindMinutes === o.v;
+            return(
+              <Pill key={String(o.v)} label={o.l} active={active} color={C.accent} bg={C.accentDim}
+                onClick={()=>{ if(isCustom){ set("remindMinutes", 20); } else { set("remindMinutes", o.v); } }}/>
+            );
+          })}
+        </div>
+        {f.remindMinutes != null && ![null,5,10,15,30].includes(f.remindMinutes) && (
+          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:8}}>
+            <input type="number" min={1} max={120} value={f.remindMinutes}
+              onChange={e=>set("remindMinutes",Number(e.target.value))}
+              style={{...inputSt(),width:80}}/>
+            <span style={{fontSize:13,color:C.textSub}}>分前</span>
+          </div>
+        )}
+      </Field>
+      <div style={{marginBottom:16}}>
+        <button onClick={()=>set("pinned",!f.pinned)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:10,fontSize:12,fontWeight:700,background:f.pinned?C.pinkDim:C.surface2,border:`1px solid ${f.pinned?C.pink:C.border}`,color:f.pinned?C.pink:C.textSub,cursor:"pointer"}}>
+          <Icon name={f.pinned?"pinFill":"pin"} size={13} color={f.pinned?C.pink:C.textSub}/>{f.pinned?"ピン留め中":"ピン留めする"}
+        </button>
+      </div>
+      <button onClick={()=>{if(f.title.trim()){const saved={...f};if(saved.repeat?.type==="none"&&!saved.dateKey)saved.dateKey=selectedDateKey;onSave(saved);}}} style={{width:"100%",padding:14,borderRadius:14,fontSize:15,fontWeight:700,background:`linear-gradient(135deg,${C.accent},${C.accent}bb)`,border:"none",color:"#fff",cursor:"pointer"}}>{initial?"更新する":"追加する"}</button>
+    </BottomSheet>
+  );
+}
+
+function LaterModal({initial,categories,onClose,onSave}){
+  const visibleCats=categories.filter(c=>c.id!=="google");
+  const [title,setTitle]=useState(initial?.title||"");
+  const [catId,setCatId]=useState(initial?.categoryId||visibleCats[0]?.id||"other");
+  const [pinned,setPinned]=useState(initial?.pinned||false);
+  return(
+    <BottomSheet title={initial?"あとでやるを編集":"あとでやるに追加"} onClose={onClose}>
+      <Field label="タイトル"><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="いつかやりたいこと" style={inputSt()} autoFocus/></Field>
+      <Field label="カテゴリ"><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{visibleCats.map(cat=><Pill key={cat.id} label={cat.name} active={catId===cat.id} color={cat.color} bg={cat.bg} onClick={()=>setCatId(cat.id)}/>)}</div></Field>
+      <div style={{marginBottom:16}}>
+        <button onClick={()=>setPinned(p=>!p)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:10,fontSize:12,fontWeight:700,background:pinned?C.pinkDim:C.surface2,border:`1px solid ${pinned?C.pink:C.border}`,color:pinned?C.pink:C.textSub,cursor:"pointer"}}>
+          <Icon name={pinned?"pinFill":"pin"} size={13} color={pinned?C.pink:C.textSub}/>{pinned?"ピン留め中":"ピン留めする"}
+        </button>
+      </div>
+      <button onClick={()=>{if(title.trim())onSave({...initial,title:title.trim(),categoryId:catId,pinned});}} style={{width:"100%",padding:14,borderRadius:14,fontSize:15,fontWeight:700,background:`linear-gradient(135deg,${C.amber},${C.amber}bb)`,border:"none",color:C.dark?"#000":"#fff",cursor:"pointer"}}>{initial?"更新する":"追加する"}</button>
+    </BottomSheet>
+  );
+}
+
+const PRESET_COLORS=["#d0a727","#667572","#a1bad0","#5a7a9a","#8a6e3a","#b85c4a","#9aaba8","#c49020","#7a9e8a","#6a7f8c"];
+function CategoryModal({initial,onClose,onSave,onDelete}){
+  const [name,setName]=useState(initial?.name||"");
+  const [color,setColor]=useState(initial?.color||PRESET_COLORS[0]);
+  return(
+    <BottomSheet title={initial?"カテゴリを編集":"カテゴリを追加"} onClose={onClose}>
+      <Field label="名前"><input value={name} onChange={e=>setName(e.target.value)} placeholder="カテゴリ名" style={inputSt()} autoFocus/></Field>
+      <Field label="カラー">
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{PRESET_COLORS.map(c=><button key={c} onClick={()=>setColor(c)} style={{width:32,height:32,borderRadius:"50%",background:c,border:`3px solid ${color===c?"#fff":"transparent"}`,cursor:"pointer",outline:"none"}}/>)}</div>
+        <div style={{marginTop:8,display:"flex",alignItems:"center",gap:10}}><div style={{width:24,height:24,borderRadius:"50%",background:color}}/><span style={{fontSize:11,color:C.textSub}}>{name||"（名前なし）"}</span></div>
+      </Field>
+      <button onClick={()=>{if(name.trim())onSave({...initial,name:name.trim(),color,bg:color+"22"});}} style={{width:"100%",padding:14,borderRadius:14,fontSize:15,fontWeight:700,background:`linear-gradient(135deg,${color},${color}cc)`,border:"none",color:"#fff",cursor:"pointer",marginBottom:10}}>{initial?"更新する":"追加する"}</button>
+      {initial&&<button onClick={()=>{if(window.confirm(`「${initial.name}」を削除しますか？`))onDelete(initial.id);}} style={{width:"100%",padding:11,borderRadius:14,fontSize:13,fontWeight:600,background:C.redDim,border:`1px solid ${C.red}44`,color:C.red,cursor:"pointer"}}>削除する</button>}
+    </BottomSheet>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

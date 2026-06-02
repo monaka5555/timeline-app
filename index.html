@@ -414,13 +414,18 @@ function App(){
       categoryName: getCat(t.categoryId)?.name || "",
     })),
 };
-const params = new URLSearchParams();
-params.append("payload", JSON.stringify(payload));
 
-window.open(
-  GAS_ENDPOINT + "?" + params.toString(),
-  "_blank"
-);
+ const response = await fetch(GAS_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json();
+
+  alert(`✅ スプレッドシートに同期しました！ (${result.count}件)`);
 
 } catch(e) {
   alert("送信失敗: " + e.message + "\nGASのデプロイURLとアクセス権限を確認してください。");

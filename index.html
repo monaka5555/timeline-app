@@ -415,15 +415,15 @@ function App(){
     })),
 };
 
-const params = new URLSearchParams();
-params.append("payload", JSON.stringify(payload));
+await fetch(GAS_ENDPOINT, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify(payload)
+});
 
-const img = new Image();
-img.src = GAS_ENDPOINT + "?" + params.toString();
-
-setTimeout(() => {
-  alert("✅ スプレッドシートに送信しました！\n（スプシを確認してください）");
-}, 2000);
+alert("✅ スプレッドシートに同期しました！");
 } catch(e) {
   alert("送信失敗: " + e.message + "\nGASのデプロイURLとアクセス権限を確認してください。");
 }

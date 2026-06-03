@@ -420,14 +420,15 @@ alert(
 };
 console.log("送信先", GAS_ENDPOINT);
 alert(GAS_ENDPOINT);
- const response = await fetch(GAS_ENDPOINT, {
+ alert("fetch成功");
+    const response = await fetch(GAS_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify(payload)
   });
-alert("fetch開始");
+alert("fetch成功");
   const result = await response.json();
 
   alert(`✅ スプレッドシートに同期しました！ (${result.count}件)`);

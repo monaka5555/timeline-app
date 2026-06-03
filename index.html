@@ -311,7 +311,36 @@ function App(){
 
   // ★ 選択日付（dateKey形式）
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey());
+async function loadTasksFromSupabase() {
 
+   alert("loadTasksFromSupabase開始");
+
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .order("time");
+
+  if (error) {
+    console.error(error);
+    alert("読込失敗: " + error.message);
+    return;
+  }
+
+  console.log("Supabase読込", data);
+
+  setTasks(
+    data.map(row => ({
+      id: row.id,
+      title: row.title,
+      time: row.time,
+      duration: row.duration || 0,
+      categoryId: row.category_id || "",
+      done: row.done || false,
+      pinned: row.pinned || false,
+      note: row.note || ""
+    }))
+  );
+}
   C = THEMES.find(t => t.id === themeId) || THEMES[0];
 
   // Google同期
@@ -360,6 +389,11 @@ function App(){
   useEffect(() => {
     saveData({tasks, doneMap, later, categories, settings:{wakeTime,sleepTime,freeThreshold,themeId}});
   }, [tasks, doneMap, later, categories, wakeTime, sleepTime, freeThreshold, themeId]);
+
+useEffect(() => {
+  alert("読込useEffect実行");
+  loadTasksFromSupabase();
+}, []);
 
   useEffect(() => {
     fetchGoogleCalendar(selectedDateKey);
@@ -440,8 +474,8 @@ function App(){
 
   alert("同期ボタン押された");
 
-  await testSupabase();
-  return;
+await loadTasksFromSupabase();
+return;
 
     if (GAS_ENDPOINT === "ここにGASのデプロイURLを貼る") {
       alert("設定が必要です\nコード内の GAS_ENDPOINT にGASのデプロイURLを貼ってください。");

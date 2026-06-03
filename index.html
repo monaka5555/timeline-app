@@ -418,7 +418,8 @@ alert(
       categoryName: getCat(t.categoryId)?.name || "",
     })),
 };
-
+console.log("送信先", GAS_ENDPOINT);
+alert(GAS_ENDPOINT);
  const response = await fetch(GAS_ENDPOINT, {
     method: "POST",
     headers: {

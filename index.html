@@ -255,6 +255,11 @@ const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwD8c4ZY6dej8uYVBq
 const SUPABASE_URL = "https://urndyzmvxozbatfooszf.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybmR5em12eG96YmF0Zm9vc3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY1MjgsImV4cCI6MjA5NjAzMjUyOH0.ZBUI8HRLS3flGOzpv4VuVHoNi4ISXGOid1kv6lgnqVI";
 
+const supabase = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+
 // ─── タスクがその日に表示すべきか判定 ────────────────────────────────────────
 function taskMatchesDate(task, dateKey) {
   const r = task.repeat;

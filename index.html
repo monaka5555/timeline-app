@@ -405,6 +405,10 @@ function App(){
       return;
     }
    try {
+alert(
+  "todayKey = " + todayKey() +
+  "\nselectedDateKey = " + selectedDateKey
+);
   const payload = {
   dateKey: selectedDateKey,
   tasks: combinedTasks

@@ -448,17 +448,23 @@ alert("fetch開始");
 }
   };
 
- // ============================================================
-// ★ Supabaseへの同期（新しく追加）
 // ============================================================
-// 1. Supabaseの初期化（取得したURLとKeyを入れてください）
+// ★ Supabaseへの同期（エラーの出ない安全版）
+// ============================================================
 const SUPABASE_URL = "あなたのProject URL";
 const SUPABASE_KEY = "あなたのAnon Key";
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// 画面真っ白を防ぐため、安全に初期化します
+const supabase = (typeof supabase !== 'undefined' && supabase.createClient) 
+  ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
+  : null;
 
 const handleSyncSupabase = async () => {
+  if (!supabase) {
+    alert("Supabaseの準備ができていません。ヘッド部分のスクリプトを確認してください。");
+    return;
+  }
+
   try {
-    // 送信データの作成（今のコードの仕組みをそのまま流用しています）
     const tasksToSync = combinedTasks
       .filter(t => !t.isGoogle)
       .map(t => ({
@@ -468,7 +474,7 @@ const handleSyncSupabase = async () => {
 
     console.log("Supabaseへの同期を開始します...", tasksToSync);
 
-    // 既存の同じ日付のタスクを一旦削除（重複防止・上書きのため）
+    // 既存の同じ日付のタスクを一旦削除
     const { error: delError } = await supabase
       .from('tasks')
       .delete()
@@ -476,29 +482,38 @@ const handleSyncSupabase = async () => {
     
     if (delError) throw delError;
 
-    // タスクが空の場合は削除だけで終了
     if (tasksToSync.length === 0) {
-      alert("✅ Supabaseのデータを空にしました（タスク0件）");
+      alert("✅ Supabaseのデータを空にしました");
       return;
     }
 
-    // Supabaseのテーブルの列名（SQL）に合わせてデータを整形
-    const rows = tasksToSync.map(t => ({
-      id: BigInt(t.id || Date.now()), // IDがなければ現在のタイムスタンプ
-      date_key: selectedDateKey,
-      title: t.title || "無題のタスク",
-      time: t.time || null,
-      duration: t.duration ? parseInt(t.duration, 10) : null,
-      category_id: t.categoryId ? String(t.categoryId) : null,
-      category_name: t.categoryName || null,
-      done: t.done || false,
-      pinned: t.pinned || false,
-      remind_minutes: t.remindMinutes ? parseInt(t.remindMinutes, 10) : 10,
-      note: t.note || null,
-      updated_at: new Date().toISOString()
-    }));
+    // エラーの原因になりやすい BigInt を排除し、普通の数字・文字列として整形
+    const rows = tasksToSync.map(t => {
+      // IDが文字列や不正な値だった場合の安全対策
+      let safeId = t.id;
+      if (!safeId || isNaN(Number(safeId))) {
+        safeId = Date.now() + Math.floor(Math.random() * 1000);
+      } else {
+        safeId = Number(safeId);
+      }
 
-    // Supabaseに一括挿入！
+      return {
+        id: safeId, 
+        date_key: String(selectedDateKey),
+        title: String(t.title || "無題のタスク"),
+        time: t.time ? String(t.time) : null,
+        duration: t.duration ? parseInt(t.duration, 10) : null,
+        category_id: t.categoryId ? String(t.categoryId) : null,
+        category_name: t.categoryName ? String(t.categoryName) : null,
+        done: Boolean(t.done),
+        pinned: Boolean(t.pinned),
+        remind_minutes: t.remindMinutes ? parseInt(t.remindMinutes, 10) : 10,
+        note: t.note ? String(t.note) : null,
+        updated_at: new Date().toISOString()
+      };
+    });
+
+    // Supabaseに一括挿入
     const { data, error } = await supabase
       .from('tasks')
       .insert(rows);

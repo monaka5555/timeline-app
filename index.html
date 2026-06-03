@@ -24,7 +24,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -252,14 +251,6 @@ const DEFAULT_LATER=[
 
 // ★ GAS WebApp エンドポイント（デプロイ後にここを書き換える）
 const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwD8c4ZY6dej8uYVBqOCBvUihHhdVEdWQxakdIvxXdpoO71IPTvMPXbCIeOfkQRCPg/exec";
-
- const SUPABASE_URL = "https://urndyzmvxozbatfooszf.supabase.co/rest/v1/";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybmR5em12eG96YmF0Zm9vc3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY1MjgsImV4cCI6MjA5NjAzMjUyOH0.ZBUI8HRLS3flGOzpv4VuVHoNi4ISXGOid1kv6lgnqVI";
-
-const supabaseClient = window.supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_KEY
-);
  
 // ─── タスクがその日に表示すべきか判定 ────────────────────────────────────────
 function taskMatchesDate(task, dateKey) {
@@ -447,86 +438,6 @@ alert("fetch開始");
   alert("送信失敗: " + e.message + "\nGASのデプロイURLとアクセス権限を確認してください。");
 }
   };
-
-// ============================================================
-// ★ Supabaseへの同期（エラーの出ない安全版）
-// ============================================================
-const SUPABASE_URL = "あなたのProject URL";
-const SUPABASE_KEY = "あなたのAnon Key";
-// 画面真っ白を防ぐため、安全に初期化します
-const supabase = (typeof supabase !== 'undefined' && supabase.createClient) 
-  ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
-  : null;
-
-const handleSyncSupabase = async () => {
-  if (!supabase) {
-    alert("Supabaseの準備ができていません。ヘッド部分のスクリプトを確認してください。");
-    return;
-  }
-
-  try {
-    const tasksToSync = combinedTasks
-      .filter(t => !t.isGoogle)
-      .map(t => ({
-        ...t,
-        categoryName: getCat(t.categoryId)?.name || "",
-      }));
-
-    console.log("Supabaseへの同期を開始します...", tasksToSync);
-
-    // 既存の同じ日付のタスクを一旦削除
-    const { error: delError } = await supabase
-      .from('tasks')
-      .delete()
-      .eq('date_key', selectedDateKey);
-    
-    if (delError) throw delError;
-
-    if (tasksToSync.length === 0) {
-      alert("✅ Supabaseのデータを空にしました");
-      return;
-    }
-
-    // エラーの原因になりやすい BigInt を排除し、普通の数字・文字列として整形
-    const rows = tasksToSync.map(t => {
-      // IDが文字列や不正な値だった場合の安全対策
-      let safeId = t.id;
-      if (!safeId || isNaN(Number(safeId))) {
-        safeId = Date.now() + Math.floor(Math.random() * 1000);
-      } else {
-        safeId = Number(safeId);
-      }
-
-      return {
-        id: safeId, 
-        date_key: String(selectedDateKey),
-        title: String(t.title || "無題のタスク"),
-        time: t.time ? String(t.time) : null,
-        duration: t.duration ? parseInt(t.duration, 10) : null,
-        category_id: t.categoryId ? String(t.categoryId) : null,
-        category_name: t.categoryName ? String(t.categoryName) : null,
-        done: Boolean(t.done),
-        pinned: Boolean(t.pinned),
-        remind_minutes: t.remindMinutes ? parseInt(t.remindMinutes, 10) : 10,
-        note: t.note ? String(t.note) : null,
-        updated_at: new Date().toISOString()
-      };
-    });
-
-    // Supabaseに一括挿入
-    const { data, error } = await supabase
-      .from('tasks')
-      .insert(rows);
-
-    if (error) throw error;
-
-    alert(`🎉 Supabaseに同期しました！ (${rows.length}件)`);
-
-  } catch (err) {
-    console.error("Supabase同期エラー:", err.message);
-    alert("Supabaseへの送信失敗: " + err.message);
-  }
-};
 
   return (
     <div style={{background:C.bg,minHeight:"100vh",maxWidth:430,margin:"0 auto",color:C.text,fontFamily:"-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif",paddingBottom:90}}>

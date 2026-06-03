@@ -432,8 +432,11 @@ function App(){
 
   // ★ スプレッドシートへの同期
   const handleSyncSpreadsheet = async () => {
-await testSupabase();
-return;
+
+  alert("同期ボタン押された");
+
+  await testSupabase();
+  return;
 
     if (GAS_ENDPOINT === "ここにGASのデプロイURLを貼る") {
       alert("設定が必要です\nコード内の GAS_ENDPOINT にGASのデプロイURLを貼ってください。");

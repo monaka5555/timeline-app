@@ -252,26 +252,26 @@ const DEFAULT_LATER=[
 // ★ GAS WebApp エンドポイント（デプロイ後にここを書き換える）
 const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwD8c4ZY6dej8uYVBqOCBvUihHhdVEdWQxakdIvxXdpoO71IPTvMPXbCIeOfkQRCPg/exec";
 
-const SUPABASE_URL = "https://urndyzmvxozbatfooszf.supabase.co/rest/v1/";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybmR5em12eG96YmF0Zm9vc3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY1MjgsImV4cCI6MjA5NjAzMjUyOH0.ZBUI8HRLS3flGOzpv4VuVHoNi4ISXGOid1kv6lgnqVI";
+／／const SUPABASE_URL = "https://urndyzmvxozbatfooszf.supabase.co/rest/v1/";
+／／const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybmR5em12eG96YmF0Zm9vc3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY1MjgsImV4cCI6MjA5NjAzMjUyOH0.ZBUI8HRLS3flGOzpv4VuVHoNi4ISXGOid1kv6lgnqVI";
 
-const supabase = window.supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_KEY
-);
+／／const supabase = window.supabase.createClient(
+／／  SUPABASE_URL,
+／／  SUPABASE_KEY
+／／);
 
-async function testSupabase() {
+／／async function testSupabase() {
 
-  const { data, error } = await supabase
-    .from("tasks")
-    .insert([
-      {
-        id: Date.now(),
-        date_key: "2026-06-03",
-        title: "Supabaseテスト",
-        time: "21:00"
-      }
-    ]);
+／／  const { data, error } = await supabase
+／／    .from("tasks")
+／／    .insert([
+／／      {
+／／        id: Date.now(),
+／／        date_key: "2026-06-03",
+／／        title: "Supabaseテスト",
+／／        time: "21:00"
+／／      }
+／／    ]);
 
   console.log(data);
   console.log(error);
@@ -429,8 +429,6 @@ function App(){
   // ★ スプレッドシートへの同期
   const handleSyncSpreadsheet = async () => {
     
-await testSupabase();
-return;
 
 if (GAS_ENDPOINT === "ここにGASのデプロイURLを貼る") {
       alert("設定が必要です\nコード内の GAS_ENDPOINT にGASのデプロイURLを貼ってください。");

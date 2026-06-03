@@ -408,27 +408,6 @@ function App(){
   const handleSyncNow = () => { setIcalRaw(null); fetchGoogleCalendar(selectedDateKey); };
 
   // ★ スプレッドシートへの同期
-
- async function testSupabase() {
-
-  const { error } = await supabaseClient
-    .from("tasks")
-    .insert([
-      {
-        id: Date.now(),
-        date_key: "2026-06-03",
-        title: "Supabaseテスト",
-        time: "21:00"
-      }
-    ]);
-
-  if (error) {
-    alert("エラー: " + error.message);
-  } else {
-    alert("Supabase保存成功！");
-  }
-}
- 
   const handleSyncSpreadsheet = async () => {
     
 
@@ -468,6 +447,71 @@ alert("fetch開始");
   alert("送信失敗: " + e.message + "\nGASのデプロイURLとアクセス権限を確認してください。");
 }
   };
+
+ // ============================================================
+// ★ Supabaseへの同期（新しく追加）
+// ============================================================
+// 1. Supabaseの初期化（取得したURLとKeyを入れてください）
+const SUPABASE_URL = "あなたのProject URL";
+const SUPABASE_KEY = "あなたのAnon Key";
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const handleSyncSupabase = async () => {
+  try {
+    // 送信データの作成（今のコードの仕組みをそのまま流用しています）
+    const tasksToSync = combinedTasks
+      .filter(t => !t.isGoogle)
+      .map(t => ({
+        ...t,
+        categoryName: getCat(t.categoryId)?.name || "",
+      }));
+
+    console.log("Supabaseへの同期を開始します...", tasksToSync);
+
+    // 既存の同じ日付のタスクを一旦削除（重複防止・上書きのため）
+    const { error: delError } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('date_key', selectedDateKey);
+    
+    if (delError) throw delError;
+
+    // タスクが空の場合は削除だけで終了
+    if (tasksToSync.length === 0) {
+      alert("✅ Supabaseのデータを空にしました（タスク0件）");
+      return;
+    }
+
+    // Supabaseのテーブルの列名（SQL）に合わせてデータを整形
+    const rows = tasksToSync.map(t => ({
+      id: BigInt(t.id || Date.now()), // IDがなければ現在のタイムスタンプ
+      date_key: selectedDateKey,
+      title: t.title || "無題のタスク",
+      time: t.time || null,
+      duration: t.duration ? parseInt(t.duration, 10) : null,
+      category_id: t.categoryId ? String(t.categoryId) : null,
+      category_name: t.categoryName || null,
+      done: t.done || false,
+      pinned: t.pinned || false,
+      remind_minutes: t.remindMinutes ? parseInt(t.remindMinutes, 10) : 10,
+      note: t.note || null,
+      updated_at: new Date().toISOString()
+    }));
+
+    // Supabaseに一括挿入！
+    const { data, error } = await supabase
+      .from('tasks')
+      .insert(rows);
+
+    if (error) throw error;
+
+    alert(`🎉 Supabaseに同期しました！ (${rows.length}件)`);
+
+  } catch (err) {
+    console.error("Supabase同期エラー:", err.message);
+    alert("Supabaseへの送信失敗: " + err.message);
+  }
+};
 
   return (
     <div style={{background:C.bg,minHeight:"100vh",maxWidth:430,margin:"0 auto",color:C.text,fontFamily:"-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif",paddingBottom:90}}>

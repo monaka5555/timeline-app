@@ -262,18 +262,21 @@ const supabaseClient = window.supabase.createClient(
 
 async function testSupabase() {
 
-  const { data, error } = await supabaseClient
+  const { error } = await supabaseClient
     .from("tasks")
-    .select("*")
-    .limit(1);
-
-  console.log("data=", data);
-  console.log("error=", error);
+    .insert([
+      {
+        id: Date.now(),
+        date_key: "2026-06-03",
+        title: "Supabase保存テスト",
+        time: "21:00"
+      }
+    ]);
 
   if (error) {
     alert("エラー: " + error.message);
   } else {
-    alert("Supabase接続成功！");
+    alert("Supabase保存成功！");
   }
 }
 

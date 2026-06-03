@@ -259,6 +259,24 @@ const supabaseClient = window.supabase.createClient(
   SUPABASE_URL,
   SUPABASE_KEY
 );
+
+async function testSupabase() {
+
+  const { data, error } = await supabaseClient
+    .from("tasks")
+    .select("*")
+    .limit(1);
+
+  console.log("data=", data);
+  console.log("error=", error);
+
+  if (error) {
+    alert("エラー: " + error.message);
+  } else {
+    alert("Supabase接続成功！");
+  }
+}
+
 // ─── タスクがその日に表示すべきか判定 ────────────────────────────────────────
 function taskMatchesDate(task, dateKey) {
   const r = task.repeat;
@@ -407,6 +425,9 @@ function App(){
 
   // ★ スプレッドシートへの同期
   const handleSyncSpreadsheet = async () => {
+await testSupabase();
+return;
+
     if (GAS_ENDPOINT === "ここにGASのデプロイURLを貼る") {
       alert("設定が必要です\nコード内の GAS_ENDPOINT にGASのデプロイURLを貼ってください。");
       return;

@@ -255,31 +255,6 @@ const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwD8c4ZY6dej8uYVBq
 const SUPABASE_URL = "https://urndyzmvxozbatfooszf.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybmR5em12eG96YmF0Zm9vc3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY1MjgsImV4cCI6MjA5NjAzMjUyOH0.ZBUI8HRLS3flGOzpv4VuVHoNi4ISXGOid1kv6lgnqVI";
 
-const supabaseClient = window.supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_KEY
-);
-
-async function testSupabase() {
-
-  const { error } = await supabaseClient
-    .from("tasks")
-    .insert([
-      {
-        id: Date.now(),
-        date_key: "2026-06-03",
-        title: "Supabase保存テスト",
-        time: "21:00"
-      }
-    ]);
-
-  if (error) {
-    alert("エラー: " + error.message);
-  } else {
-    alert("Supabase保存成功！");
-  }
-}
-
 // ─── タスクがその日に表示すべきか判定 ────────────────────────────────────────
 function taskMatchesDate(task, dateKey) {
   const r = task.repeat;
@@ -425,6 +400,35 @@ function App(){
   };
 
   const handleSyncNow = () => { setIcalRaw(null); fetchGoogleCalendar(selectedDateKey); };
+
+ async function testSupabase() {
+
+  const rows = combinedTasks
+    .filter(t => !t.isGoogle)
+    .map(t => ({
+      id: t.id,
+      date_key: selectedDateKey,
+      title: t.title,
+      time: t.time,
+      duration: t.duration || 0,
+      category_id: t.categoryId || "",
+      category_name: getCat(t.categoryId)?.name || "",
+      done: !!t.done,
+      pinned: !!t.pinned,
+      remind_minutes: t.remindMinutes || 10,
+      note: t.note || ""
+    }));
+
+  const { error } = await supabase
+    .from("tasks")
+    .upsert(rows);
+
+  if (error) {
+    alert("エラー: " + error.message);
+  } else {
+    alert(`Supabase保存成功！ (${rows.length}件)`);
+  }
+} 
 
   // ★ スプレッドシートへの同期
   const handleSyncSpreadsheet = async () => {

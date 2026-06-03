@@ -427,7 +427,7 @@ alert(GAS_ENDPOINT);
     },
     body: JSON.stringify(payload)
   });
-
+alert("fetch開始");
   const result = await response.json();
 
   alert(`✅ スプレッドシートに同期しました！ (${result.count}件)`);

@@ -251,7 +251,7 @@ const DEFAULT_LATER=[
 
 // ★ GAS WebApp エンドポイント（デプロイ後にここを書き換える）
 const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwD8c4ZY6dej8uYVBqOCBvUihHhdVEdWQxakdIvxXdpoO71IPTvMPXbCIeOfkQRCPg/exec";
- 
+
 // ─── タスクがその日に表示すべきか判定 ────────────────────────────────────────
 function taskMatchesDate(task, dateKey) {
   const r = task.repeat;
@@ -400,9 +400,7 @@ function App(){
 
   // ★ スプレッドシートへの同期
   const handleSyncSpreadsheet = async () => {
-    
-
-if (GAS_ENDPOINT === "ここにGASのデプロイURLを貼る") {
+    if (GAS_ENDPOINT === "ここにGASのデプロイURLを貼る") {
       alert("設定が必要です\nコード内の GAS_ENDPOINT にGASのデプロイURLを貼ってください。");
       return;
     }
@@ -420,8 +418,7 @@ alert(
       categoryName: getCat(t.categoryId)?.name || "",
     })),
 };
-console.log("送信先", GAS_ENDPOINT);
-alert(GAS_ENDPOINT);
+
  const response = await fetch(GAS_ENDPOINT, {
     method: "POST",
     headers: {
@@ -429,7 +426,7 @@ alert(GAS_ENDPOINT);
     },
     body: JSON.stringify(payload)
   });
-alert("fetch開始");
+
   const result = await response.json();
 
   alert(`✅ スプレッドシートに同期しました！ (${result.count}件)`);

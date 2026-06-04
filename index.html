@@ -293,7 +293,13 @@ function getDoneKey(taskId, dateKey) { return `done:${taskId}:${dateKey}`; }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 function App(){
+  
   const saved = loadData();
+  alert(
+  "saved.tasks=" +
+  (saved?.tasks?.length || 0)
+);
+
   const [tab, setTab]           = useState("timeline");
   const [tasks, setTasks] = useState([]);
   const [doneMap, setDoneMap]   = useState(saved?.doneMap || {}); // {`done:id:dateKey`: bool}

@@ -295,7 +295,7 @@ function getDoneKey(taskId, dateKey) { return `done:${taskId}:${dateKey}`; }
 function App(){
   const saved = loadData();
   const [tab, setTab]           = useState("timeline");
-  const [tasks, setTasks]       = useState(saved?.tasks || DEFAULT_TASKS);
+  const [tasks, setTasks] = useState([]);
   const [doneMap, setDoneMap]   = useState(saved?.doneMap || {}); // {`done:id:dateKey`: bool}
   const [googleTasks, setGoogleTasks]   = useState([]);
   const [googleSyncStatus, setGoogleSyncStatus] = useState("idle");
@@ -313,38 +313,43 @@ function App(){
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey());
 async function loadTasksFromSupabase() {
 
-  alert("loadTasksFromSupabase開始");
-alert("monaka test 12345");
-  try {
+try {
 
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .order("time");
+```
+const { data, error } = await supabase
+  .from("tasks")
+  .select("*")
+  .order("time");
 
-    alert("ここまで来た");
-
-    if (error) {
-      alert("Supabaseエラー: " + error.message);
-      return;
-    }
-
-    alert("件数=" + data.length);
-    setTasks([]);
-
-alert("setTasks後");
-
-    setTasks(
-      
-    );
-
-  } catch (e) {
-
-    alert("catch: " + e.message);
-    console.error(e);
-
-  }
+if (error) {
+  alert("Supabaseエラー: " + error.message);
+  return;
 }
+
+setTasks(
+  data.map(row => ({
+    id: row.id,
+    title: row.title,
+    time: row.time,
+    duration: row.duration || 0,
+    categoryId: row.category_id || "",
+    done: row.done || false,
+    pinned: row.pinned || false,
+    note: row.note || ""
+  }))
+);
+```
+
+} catch (e) {
+
+```
+alert("読込失敗: " + e.message);
+console.error(e);
+```
+
+}
+}
+
   C = THEMES.find(t => t.id === themeId) || THEMES[0];
 
   // Google同期
@@ -408,7 +413,6 @@ useEffect(() => {
 
   // 選択日のタスクを絞り込む
   const dayTasks = tasks.filter(t => taskMatchesDate(t, selectedDateKey));
-alert("dayTasks=" + dayTasks.length);
  
   // 完了状態を取得
   const getTaskDone = (task) => doneMap[getDoneKey(task.id, selectedDateKey)] ?? task.done;

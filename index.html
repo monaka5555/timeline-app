@@ -326,9 +326,6 @@ if (error) {
   return;
 }
 
-console.log(data);
-alert(JSON.stringify(data[0], null, 2));
-
 setTasks(
   data.map(row => ({
     id: row.id,
@@ -352,6 +349,7 @@ console.error(e);
 
 }
 }
+
 
   C = THEMES.find(t => t.id === themeId) || THEMES[0];
 

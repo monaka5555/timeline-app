@@ -330,18 +330,12 @@ async function loadTasksFromSupabase() {
     }
 
     alert("件数=" + data.length);
+    setTasks([]);
+
+alert("setTasks後");
 
     setTasks(
-      data.map(row => ({
-        id: row.id,
-        title: row.title,
-        time: row.time,
-        duration: row.duration || 0,
-        categoryId: row.category_id || "",
-        done: row.done || false,
-        pinned: row.pinned || false,
-        note: row.note || ""
-      }))
+      
     );
 
   } catch (e) {

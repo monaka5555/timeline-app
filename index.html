@@ -425,11 +425,6 @@ useEffect(() => {
   // 選択日のタスクを絞り込む
   const dayTasks = tasks.filter(t => taskMatchesDate(t, selectedDateKey));
  
-  alert(
-  "tasks=" + tasks.length +
-  " dayTasks=" + dayTasks.length
-);
-
   // 完了状態を取得
   const getTaskDone = (task) => doneMap[getDoneKey(task.id, selectedDateKey)] ?? task.done;
   const setTaskDone = (task, val) => setDoneMap(p => ({...p, [getDoneKey(task.id, selectedDateKey)]: val}));

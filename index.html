@@ -293,7 +293,7 @@ function getDoneKey(taskId, dateKey) { return `done:${taskId}:${dateKey}`; }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 function App(){
-  
+
   const saved = loadData();
   alert(
   "saved.tasks=" +
@@ -301,7 +301,10 @@ function App(){
 );
 
   const [tab, setTab]           = useState("timeline");
-  const [tasks, setTasks] = useState([]);
+  const [tasks, setTasks] = useState(saved?.tasks || DEFAULT_TASKS);
+  useEffect(() => {
+  alert("tasks更新=" + tasks.length);
+}, [tasks]);
   const [doneMap, setDoneMap]   = useState(saved?.doneMap || {}); // {`done:id:dateKey`: bool}
   const [googleTasks, setGoogleTasks]   = useState([]);
   const [googleSyncStatus, setGoogleSyncStatus] = useState("idle");

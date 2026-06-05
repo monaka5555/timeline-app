@@ -327,21 +327,31 @@ async function loadTasksFromSupabase() {
 
     if (!data || data.length === 0) return;
 
-    setTasks(
-      data.map(row => ({
-        id: row.id,
-        title: row.title,
-        time: row.time,
-        duration: row.duration || 30,
-        categoryId: row.category_id || "other",
-        done: row.done || false,
-        pinned: row.pinned || false,
-        note: row.note || "",
-        dateKey: row.date_key || null,
-        repeat: row.repeat ? (typeof row.repeat === "string" ? JSON.parse(row.repeat) : row.repeat) : { type: "none", interval: 1, end: { type: "none" } },
-        remindMinutes: row.remind_minutes ?? null,
-      }))
-    );
+   const loaded = data.map(row => ({
+      id: row.id,
+      title: row.title,
+      time: row.time,
+      duration: row.duration || 30,
+      categoryId: row.category_id || "other",
+      done: row.done || false,
+      pinned: row.pinned || false,
+      note: row.note || "",
+      dateKey: row.date_key || null,
+      repeat: row.repeat ? (typeof row.repeat === "string" ? JSON.parse(row.repeat) : row.repeat) : { type: "none", interval: 1, end: { type: "none" } },
+      remindMinutes: row.remind_minutes ?? null,
+    }));
+    setTasks(loaded);
+
+    // SupabaseのdoneをdoneMapに反映
+    setDoneMap(prev => {
+      const next = { ...prev };
+      loaded.forEach(t => {
+        if (t.done && t.dateKey) {
+          next[`done:${t.id}:${t.dateKey}`] = true;
+        }
+      });
+      return next;
+    }); 
   } catch (e) {
     console.error("Supabase読込失敗:", e.message);
   }

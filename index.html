@@ -32,7 +32,7 @@ const { useState, useEffect, useRef, useCallback } = React;
 const STORAGE_KEY = "timeline_app_v2";
 function loadData() { try { const r=localStorage.getItem(STORAGE_KEY); return r?JSON.parse(r):null; } catch{return null;} }
 function saveData(data) { try { localStorage.setItem(STORAGE_KEY,JSON.stringify(data)); showToast(); } catch{} }
-function showToast() { const el=document.getElementById("toast"); if(!el)return; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),1800); }
+function showToast(msg) { const el=document.getElementById("toast"); if(!el)return; if(msg)el.textContent=msg; else el.textContent="💾 保存しました"; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),1800); }
 
 // ─── DATE HELPERS ─────────────────────────────────────────────────────────────
 // dateKey: "YYYY-MM-DD" 形式
@@ -295,16 +295,9 @@ function getDoneKey(taskId, dateKey) { return `done:${taskId}:${dateKey}`; }
 function App(){
 
   const saved = loadData();
-  alert(
-  "saved.tasks=" +
-  (saved?.tasks?.length || 0)
-);
 
   const [tab, setTab]           = useState("timeline");
   const [tasks, setTasks] = useState(saved?.tasks || DEFAULT_TASKS);
-  useEffect(() => {
-  alert("tasks更新=" + tasks.length);
-}, [tasks]);
   const [doneMap, setDoneMap]   = useState(saved?.doneMap || {}); // {`done:id:dateKey`: bool}
   const [googleTasks, setGoogleTasks]   = useState([]);
   const [googleSyncStatus, setGoogleSyncStatus] = useState("idle");
@@ -321,39 +314,37 @@ function App(){
   // ★ 選択日付（dateKey形式）
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey());
 async function loadTasksFromSupabase() {
+  try {
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .order("time");
 
-try {
+    if (error) {
+      console.error("Supabase読込エラー:", error.message);
+      return;
+    }
 
-const { data, error } = await supabase
-  .from("tasks")
-  .select("*")
-  .order("time");
+    if (!data || data.length === 0) return;
 
-if (error) {
-  alert("Supabaseエラー: " + error.message);
-  return;
-}
-
-setTasks(
-  data.map(row => ({
-    id: row.id,
-    title: row.title,
-    time: row.time,
-    duration: row.duration || 0,
-    categoryId: row.category_id || "",
-    done: row.done || false,
-    pinned: row.pinned || false,
-    note: row.note || ""
-  }))
-);
-
-} catch (e) {
-
-
-alert("読込失敗: " + e.message);
-console.error(e);
-
-}
+    setTasks(
+      data.map(row => ({
+        id: row.id,
+        title: row.title,
+        time: row.time,
+        duration: row.duration || 30,
+        categoryId: row.category_id || "other",
+        done: row.done || false,
+        pinned: row.pinned || false,
+        note: row.note || "",
+        dateKey: row.date_key || null,
+        repeat: row.repeat ? (typeof row.repeat === "string" ? JSON.parse(row.repeat) : row.repeat) : { type: "none", interval: 1, end: { type: "none" } },
+        remindMinutes: row.remind_minutes ?? null,
+      }))
+    );
+  } catch (e) {
+    console.error("Supabase読込失敗:", e.message);
+  }
 }
 
 
@@ -448,20 +439,20 @@ useEffect(() => {
     if (task.isGoogle) return;
     setTasks(p => p.map(t => t.id===task.id ? {...t,pinned:!t.pinned} : t));
   };
-  const handleDelete = (task) => {
+  const handleDelete = async (task) => {
     if (task.isGoogle) { alert("Googleカレンダーの予定はカレンダーアプリ側から削除してください"); return; }
     setTasks(p => p.filter(t => t.id !== task.id));
+    await supabase.from("tasks").delete().eq("id", task.id);
   };
 
   const handleSyncNow = () => { setIcalRaw(null); fetchGoogleCalendar(selectedDateKey); };
 
- async function testSupabase() {
-
-  const rows = combinedTasks
+ async function saveTasksToSupabase(taskList) {
+  const rows = taskList
     .filter(t => !t.isGoogle)
     .map(t => ({
       id: t.id,
-      date_key: selectedDateKey,
+      date_key: t.dateKey || null,
       title: t.title,
       time: t.time,
       duration: t.duration || 0,
@@ -469,63 +460,54 @@ useEffect(() => {
       category_name: getCat(t.categoryId)?.name || "",
       done: !!t.done,
       pinned: !!t.pinned,
-      remind_minutes: t.remindMinutes || 10,
-      note: t.note || ""
+      remind_minutes: t.remindMinutes ?? null,
+      note: t.note || "",
+      repeat: t.repeat ? JSON.stringify(t.repeat) : null,
     }));
 
   const { error } = await supabase
     .from("tasks")
-    .upsert(rows);
+    .upsert(rows, { onConflict: "id" });
+
+  if (error) {
+    console.error("Supabase保存エラー:", error.message);
+    showToast("❌ 保存失敗");
+  }
+}
+
+async function testSupabase() {
+  const rows = tasks
+    .filter(t => !t.isGoogle)
+    .map(t => ({
+      id: t.id,
+      date_key: t.dateKey || null,
+      title: t.title,
+      time: t.time,
+      duration: t.duration || 0,
+      category_id: t.categoryId || "",
+      category_name: getCat(t.categoryId)?.name || "",
+      done: !!t.done,
+      pinned: !!t.pinned,
+      remind_minutes: t.remindMinutes ?? null,
+      note: t.note || "",
+      repeat: t.repeat ? JSON.stringify(t.repeat) : null,
+    }));
+
+  const { error } = await supabase
+    .from("tasks")
+    .upsert(rows, { onConflict: "id" });
 
   if (error) {
     alert("エラー: " + error.message);
   } else {
     alert(`Supabase保存成功！ (${rows.length}件)`);
   }
-} 
-
-  // ★ スプレッドシートへの同期
-  const handleSyncSpreadsheet = async () => {
-
-  alert("同期ボタン押された");
-
-await loadTasksFromSupabase();
-return;
-
-    if (GAS_ENDPOINT === "ここにGASのデプロイURLを貼る") {
-      alert("設定が必要です\nコード内の GAS_ENDPOINT にGASのデプロイURLを貼ってください。");
-      return;
-    }
-   try {
-alert(
-  "todayKey = " + todayKey() +
-  "\nselectedDateKey = " + selectedDateKey
-);
-  const payload = {
-  dateKey: selectedDateKey,
-  tasks: combinedTasks
-    .filter(t => !t.isGoogle)
-    .map(t => ({
-      ...t,
-      categoryName: getCat(t.categoryId)?.name || "",
-    })),
-};
-
- const response = await fetch(GAS_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  const result = await response.json();
-
-  alert(`✅ スプレッドシートに同期しました！ (${result.count}件)`);
-
-} catch(e) {
-  alert("送信失敗: " + e.message + "\nGASのデプロイURLとアクセス権限を確認してください。");
 }
+
+  // ★ 同期ボタン：Supabaseへ保存
+  const handleSyncSpreadsheet = async () => {
+    await saveTasksToSupabase(tasks);
+    alert(`✅ Supabaseに同期しました！ (${tasks.filter(t=>!t.isGoogle).length}件)`);
   };
 
   return (
@@ -581,7 +563,17 @@ alert(
       {modal?.type==="task" && (
         <TaskModal initial={modal.data} categories={categories} selectedDateKey={selectedDateKey}
           onClose={()=>setModal(null)}
-          onSave={t=>{if(t.id)setTasks(p=>p.map(x=>x.id===t.id?t:x));else setTasks(p=>[...p,{...t,id:Date.now()}]);setModal(null);}}
+          onSave={async t=>{
+            let newTasks;
+            if(t.id) {
+              newTasks = tasks.map(x=>x.id===t.id?t:x);
+            } else {
+              newTasks = [...tasks,{...t,id:Date.now()}];
+            }
+            setTasks(newTasks);
+            setModal(null);
+            await saveTasksToSupabase(newTasks);
+          }}
         />
       )}
       {modal?.type==="later" && (

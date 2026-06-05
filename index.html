@@ -428,13 +428,16 @@ useEffect(() => {
   const pinnedTasks = combinedTasks.filter(t => t.pinned);
   const pinnedLater = later.filter(t => t.pinned);
 
-  const handleToggleDone = (task) => {
-    if (task.isGoogle) {
-      setGoogleTasks(p => p.map(t => t.id===task.id ? {...t,done:!t.done} : t));
-    } else {
-      setTaskDone(task, !getTaskDone(task));
-    }
-  };
+  const handleToggleDone = async (task) => {
+  if (task.isGoogle) {
+    setGoogleTasks(p => p.map(t => t.id===task.id ? {...t,done:!t.done} : t));
+  } else {
+    const newDone = !getTaskDone(task);
+    setTaskDone(task, newDone);
+    await supabase.from("tasks").update({ done: newDone }).eq("id", task.id);
+  }
+};
+
   const handleTogglePin = (task) => {
     if (task.isGoogle) return;
     setTasks(p => p.map(t => t.id===task.id ? {...t,pinned:!t.pinned} : t));

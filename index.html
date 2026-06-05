@@ -314,6 +314,18 @@ function App(){
   // ★ 選択日付（dateKey形式）
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey());
 async function loadTasksFromSupabase() {
+
+  async function loadCategoriesFromSupabase() {
+  const { data, error } = await supabase.from("categories").select("*").order("sort_order");
+  if (error || !data || data.length === 0) return;
+  setCategories(data.map(row => ({
+    id: row.id,
+    name: row.name,
+    color: row.color,
+    bg: row.bg,
+  })));
+}
+
   try {
     const { data, error } = await supabase
       .from("tasks")
@@ -407,9 +419,7 @@ async function loadTasksFromSupabase() {
     saveData({tasks, doneMap, later, categories, settings:{wakeTime,sleepTime,freeThreshold,themeId}});
   }, [tasks, doneMap, later, categories, wakeTime, sleepTime, freeThreshold, themeId]);
 
-useEffect(() => {
-  loadTasksFromSupabase();
-}, []);
+useEffect(() => { loadTasksFromSupabase(); loadCategoriesFromSupabase(); }, []);
 
   useEffect(() => {
     fetchGoogleCalendar(selectedDateKey);
@@ -602,8 +612,22 @@ async function testSupabase() {
       )}
       {modal?.type==="category" && (
         <CategoryModal initial={modal.data} onClose={()=>setModal(null)}
-          onSave={cat=>{if(cat.id&&categories.find(c=>c.id===cat.id))setCategories(p=>p.map(c=>c.id===cat.id?cat:c));else setCategories(p=>[...p,{...cat,id:Date.now().toString()}]);setModal(null);}}
-          onDelete={id=>{setCategories(p=>p.filter(c=>c.id!==id));setModal(null);}}
+       onSave={async cat=>{
+  const isNew = !categories.find(c=>c.id===cat.id);
+  const newCat = isNew ? {...cat, id: Date.now().toString()} : cat;
+  if(isNew) setCategories(p=>[...p, newCat]);
+  else setCategories(p=>p.map(c=>c.id===cat.id?cat:c));
+  setModal(null);
+  await supabase.from("categories").upsert({
+    id: newCat.id, name: newCat.name, color: newCat.color, bg: newCat.bg,
+    sort_order: categories.length
+  }, { onConflict: "id" });
+}}
+onDelete={async id=>{
+  setCategories(p=>p.filter(c=>c.id!==id));
+  setModal(null);
+  await supabase.from("categories").delete().eq("id", id);
+}}   
         />
       )}
     </div>

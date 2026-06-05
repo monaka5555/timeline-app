@@ -324,7 +324,6 @@ async function loadTasksFromSupabase() {
 
 try {
 
-```
 const { data, error } = await supabase
   .from("tasks")
   .select("*")
@@ -347,15 +346,12 @@ setTasks(
     note: row.note || ""
   }))
 );
-```
-alert("setTasks実行");
 
 } catch (e) {
 
-```
+
 alert("読込失敗: " + e.message);
 console.error(e);
-```
 
 }
 }
@@ -411,7 +407,6 @@ console.error(e);
   }, [tasks, doneMap, later, categories, wakeTime, sleepTime, freeThreshold, themeId]);
 
 useEffect(() => {
-  alert("読込useEffect実行");
   loadTasksFromSupabase();
 }, []);
 
@@ -422,7 +417,7 @@ useEffect(() => {
     return () => { clearInterval(iv); clearInterval(calIv); };
   }, []);
 
-  // 選択日のタスクを絞り込む
+  // 選択日のタスクを絞り込むf
   const dayTasks = tasks.filter(t => taskMatchesDate(t, selectedDateKey));
  
   // 完了状態を取得

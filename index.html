@@ -357,6 +357,17 @@ async function loadTasksFromSupabase() {
     console.error("Supabase読込失敗:", e.message);
   }
 }
+async function loadCategoriesFromSupabase() {
+  const { data, error } = await supabase.from("categories").select("*").order("sort_order");
+  if (error || !data || data.length === 0) return;
+  setCategories(data.map(row => ({
+    id: row.id,
+    name: row.name,
+    color: row.color,
+    bg: row.bg,
+  })));
+}
+
 async function loadLaterFromSupabase() {
   const { data, error } = await supabase.from("later").select("*").order("created_at");
   if (error || !data || data.length === 0) return;
@@ -364,7 +375,7 @@ async function loadLaterFromSupabase() {
     id: row.id,
     title: row.title,
     categoryId: row.category_id,
-    note: row.note || "",
+    note: row.note || ""
     pinned: row.pinned || false,
   })));
 }

@@ -375,7 +375,7 @@ async function loadLaterFromSupabase() {
     id: row.id,
     title: row.title,
     categoryId: row.category_id,
-    note: row.note || ""
+    note: row.note || "",
     pinned: row.pinned || false,
   })));
 }

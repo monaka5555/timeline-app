@@ -388,11 +388,7 @@ async function loadLaterFromSupabase() {
     setGoogleSyncStatus("loading");
     const icalUrl = "https://calendar.google.com/calendar/ical/sa712ys%40gmail.com/private-11d3de61a5a57165c6b0bf9419905b9f/basic.ics";
     const proxies = [
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(icalUrl)}`,
-      `https://corsproxy.io/?${encodeURIComponent(icalUrl)}`,
-      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(icalUrl)}`,
-      `https://thingproxy.freeboard.io/fetch/${icalUrl}`,
-    ];
+      `https://ical-proxy.sa712ys.workers.dev/?url=${encodeURIComponent(icalUrl)}`,];
     const fetchWithTimeout = (url, ms) => Promise.race([
       fetch(url),
       new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")),ms))

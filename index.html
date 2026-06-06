@@ -357,14 +357,15 @@ async function loadTasksFromSupabase() {
     console.error("Supabase読込失敗:", e.message);
   }
 }
-async function loadCategoriesFromSupabase() {
-  const { data, error } = await supabase.from("categories").select("*").order("sort_order");
+async function loadLaterFromSupabase() {
+  const { data, error } = await supabase.from("later").select("*").order("created_at");
   if (error || !data || data.length === 0) return;
-  setCategories(data.map(row => ({
+  setLater(data.map(row => ({
     id: row.id,
-    name: row.name,
-    color: row.color,
-    bg: row.bg,
+    title: row.title,
+    categoryId: row.category_id,
+    note: row.note || "",
+    pinned: row.pinned || false,
   })));
 }
 
@@ -417,7 +418,7 @@ async function loadCategoriesFromSupabase() {
     saveData({tasks, doneMap, later, categories, settings:{wakeTime,sleepTime,freeThreshold,themeId}});
   }, [tasks, doneMap, later, categories, wakeTime, sleepTime, freeThreshold, themeId]);
 
-useEffect(() => { loadTasksFromSupabase(); loadCategoriesFromSupabase(); }, []);
+useEffect(() => { loadTasksFromSupabase(); loadCategoriesFromSupabase(); loadLaterFromSupabase(); }, []);
 
   useEffect(() => {
     fetchGoogleCalendar(selectedDateKey);
@@ -599,7 +600,18 @@ async function testSupabase() {
       )}
       {modal?.type==="later" && (
         <LaterModal initial={modal.data} categories={categories} onClose={()=>setModal(null)}
-          onSave={item=>{if(item.id)setLater(p=>p.map(x=>x.id===item.id?item:x));else setLater(p=>[...p,{...item,id:Date.now()}]);setModal(null);}}
+      onSave={async item=>{
+  const isNew = !item.id;
+  const newItem = isNew ? {...item, id: Date.now().toString()} : item;
+  if(isNew) setLater(p=>[...p, newItem]);
+  else setLater(p=>p.map(x=>x.id===item.id?item:x));
+  setModal(null);
+  await supabase.from("later").upsert({
+    id: newItem.id, title: newItem.title,
+    category_id: newItem.categoryId, note: newItem.note || "",
+    pinned: newItem.pinned || false,
+  }, { onConflict: "id" });
+}}
         />
       )}
       {modal?.type==="calendar" && (
@@ -953,9 +965,16 @@ function LaterView({items,setLater,getCat,onPromote,onEdit}){
             <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>{item.title}</div>
             <div style={{display:"flex",gap:6}}>
               <Chip icon="promote" label="今日やる" color={C.green} onClick={()=>onPromote(item)}/>
-              <Chip icon={item.pinned?"pinFill":"pin"} label={item.pinned?"外す":"ピン"} color={C.pink} onClick={()=>setLater(p=>p.map(x=>x.id===item.id?{...x,pinned:!x.pinned}:x))}/>
-              <Chip icon="edit" label="編集" color={C.accent} onClick={()=>onEdit(item)}/>
-              <Chip icon="trash" label="" color={C.red} onClick={()=>setLater(p=>p.filter(x=>x.id!==item.id))}/>
+           <Chip icon={item.pinned?"pinFill":"pin"} label={item.pinned?"外す":"ピン"} color={C.pink} onClick={async()=>{
+  const newPinned=!item.pinned;
+  setLater(p=>p.map(x=>x.id===item.id?{...x,pinned:newPinned}:x));
+  await supabase.from("later").update({pinned:newPinned}).eq("id",item.id);
+}}/>
+<Chip icon="edit" label="編集" color={C.accent} onClick={()=>onEdit(item)}/>
+<Chip icon="trash" label="" color={C.red} onClick={async()=>{
+  setLater(p=>p.filter(x=>x.id!==item.id));
+  await supabase.from("later").delete().eq("id",item.id);
+}}/>   
             </div>
           </div>
         );

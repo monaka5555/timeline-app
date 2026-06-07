@@ -430,20 +430,13 @@ useEffect(() => {
   loadCategoriesFromSupabase();
   loadLaterFromSupabase();
 
-  // リアルタイム同期
-const channel = supabase.channel("realtime-sync")
-   .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => {
-     loadTasksFromSupabase();
-   })
-    .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => {
-      loadCategoriesFromSupabase();
-    })
-    .on("postgres_changes", { event: "*", schema: "public", table: "later" }, () => {
-      loadLaterFromSupabase();
-    })
-    .subscribe();
+  // 5秒ポーリング
+  const pollIv = setInterval(() => {
+    loadTasksFromSupabase();
+    loadLaterFromSupabase();
+  }, 5000);
 
-  return () => { supabase.removeChannel(channel); };
+  return () => { clearInterval(pollIv); };
 }, []);
 
   useEffect(() => {

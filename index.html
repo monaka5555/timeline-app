@@ -425,7 +425,26 @@ async function loadLaterFromSupabase() {
     saveData({tasks, doneMap, later, categories, settings:{wakeTime,sleepTime,freeThreshold,themeId}});
   }, [tasks, doneMap, later, categories, wakeTime, sleepTime, freeThreshold, themeId]);
 
-useEffect(() => { loadTasksFromSupabase(); loadCategoriesFromSupabase(); loadLaterFromSupabase(); }, []);
+useEffect(() => {
+  loadTasksFromSupabase();
+  loadCategoriesFromSupabase();
+  loadLaterFromSupabase();
+
+  // リアルタイム同期
+  const channel = supabase.channel("realtime-sync")
+    .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => {
+      loadTasksFromSupabase();
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => {
+      loadCategoriesFromSupabase();
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "later" }, () => {
+      loadLaterFromSupabase();
+    })
+    .subscribe();
+
+  return () => { supabase.removeChannel(channel); };
+}, []);
 
   useEffect(() => {
     fetchGoogleCalendar(selectedDateKey);
@@ -1090,13 +1109,6 @@ function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold
         <div style={{padding:"10px 12px",borderRadius:10,background:C.greenDim,border:`1px solid ${C.green}44`}}>
           <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:2}}>💾 自動保存オン</div>
           <div style={{fontSize:11,color:C.textSub,lineHeight:1.5}}>手動で追加したタスク・設定は自動でこの端末に保存されます。</div>
-        </div>
-        <div style={{marginTop:10,padding:"10px 12px",borderRadius:10,background:C.amberDim,border:`1px solid ${C.amber}44`}}>
-          <div style={{fontSize:12,fontWeight:700,color:C.amber,marginBottom:4}}>📤 スプレッドシートに同期</div>
-          <div style={{fontSize:11,color:C.textSub,lineHeight:1.5,marginBottom:8}}>今日のタスクをGASに送信します。送信後にLINE通知が有効になります。</div>
-          <button onClick={onSyncSpreadsheet} style={{fontSize:11,color:C.amber,background:C.amberDim,border:`1px solid ${C.amber}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontWeight:600}}>
-            <Icon name="sync" size={12} color={C.amber}/>今日のタスクを送信
-          </button>
         </div>
       </SG>
     </div>

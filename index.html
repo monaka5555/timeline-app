@@ -487,11 +487,13 @@ useEffect(() => {
     if (task.isGoogle) return;
     setTasks(p => p.map(t => t.id===task.id ? {...t,pinned:!t.pinned} : t));
   };
-  const handleDelete = async (task) => {
+ const handleDelete = async (task) => {
     if (task.isGoogle) { alert("Googleカレンダーの予定はカレンダーアプリ側から削除してください"); return; }
     setTasks(p => p.filter(t => t.id !== task.id));
-    await supabase.from("tasks").delete().eq("id", task.id);
-  };
+    console.log("削除ID:", task.id, typeof task.id);
+    const { error } = await supabase.from("tasks").delete().eq("id", task.id);
+    console.log("削除結果:", error);
+  }; 
 
   const handleSyncNow = () => { setIcalRaw(null); fetchGoogleCalendar(selectedDateKey); };
 

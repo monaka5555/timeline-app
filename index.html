@@ -421,9 +421,9 @@ async function loadLaterFromSupabase() {
     }
   }, [selectedDateKey]);
 
-  useEffect(() => {
-    saveData({tasks, doneMap, later, categories, settings:{wakeTime,sleepTime,freeThreshold,themeId}});
-  }, [tasks, doneMap, later, categories, wakeTime, sleepTime, freeThreshold, themeId]);
+ useEffect(() => {
+    saveData({doneMap, categories, settings:{wakeTime,sleepTime,freeThreshold,themeId}});
+  }, [doneMap, categories, wakeTime, sleepTime, freeThreshold, themeId]); 
 
 useEffect(() => {
   loadTasksFromSupabase();

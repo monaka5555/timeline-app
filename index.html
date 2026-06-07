@@ -298,7 +298,7 @@ function App(){
   const saved = loadData();
 
   const [tab, setTab]           = useState("timeline");
-  const [tasks, setTasks] = useState(saved?.tasks || DEFAULT_TASKS);
+  const [tasks, setTasks] = useState([]);
   const [doneMap, setDoneMap]   = useState(saved?.doneMap || {}); // {`done:id:dateKey`: bool}
   const [googleTasks, setGoogleTasks]   = useState([]);
   const [googleSyncStatus, setGoogleSyncStatus] = useState("idle");
@@ -431,19 +431,19 @@ useEffect(() => {
   loadLaterFromSupabase();
 
   // リアルタイム同期
- // const channel = supabase.channel("realtime-sync")
- //   .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => {
- //     loadTasksFromSupabase();
- //   })
- //   .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => {
- //     loadCategoriesFromSupabase();
- //   })
- //   .on("postgres_changes", { event: "*", schema: "public", table: "later" }, () => {
- //     loadLaterFromSupabase();
- //   })
- //   .subscribe();
+const channel = supabase.channel("realtime-sync")
+   .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => {
+     loadTasksFromSupabase();
+   })
+    .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => {
+      loadCategoriesFromSupabase();
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "later" }, () => {
+      loadLaterFromSupabase();
+    })
+    .subscribe();
 
-//  return () => { supabase.removeChannel(channel); };
+  return () => { supabase.removeChannel(channel); };
 }, []);
 
   useEffect(() => {

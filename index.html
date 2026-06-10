@@ -482,7 +482,8 @@ useEffect(() => {
     });
   }, 5000);
 
-  return () => { clearInterval(pollIv); clearInterval(notifIv); };}, []);
+  return () => { clearInterval(pollIv); clearInterval(notifIv); };
+}, [tasks, wakeTime]);
 
   useEffect(() => {
     fetchGoogleCalendar(selectedDateKey);

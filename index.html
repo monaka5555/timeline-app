@@ -445,7 +445,7 @@ useEffect(() => {
 
   // タスクリマインド通知（1分ごとにチェック）
   const notifIv = setInterval(() => {
-   console.log("通知チェック:", nowMin(), Notification?.permission);
+   console.log("通知チェック:", nowMin(), Notification?.permission, "tasks件数:", tasks.length);
     if (Notification?.permission !== "granted") return;
     const currentMin = nowMin();
 

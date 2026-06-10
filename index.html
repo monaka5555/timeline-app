@@ -472,6 +472,7 @@ useEffect(() => {
       if (!isRepeat && taskDate !== todayKey()) return;
       const taskMin = toMin(task.time);
       const notifMin = taskMin - task.remindMinutes;
+      console.log("タスク確認:", task.title, "通知予定:", notifMin, "現在:", currentMin);
       if (currentMin === notifMin) {
         new Notification(`⏰ ${task.title}`, {
           body: `${task.remindMinutes}分後に開始します（${task.time}）`,

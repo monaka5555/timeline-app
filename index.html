@@ -434,25 +434,24 @@ async function loadLaterFromSupabase() {
   }, [doneMap, categories, wakeTime, sleepTime, freeThreshold, themeId]); 
 
 useEffect(() => {
-console.log("useEffect実行！tasks:", tasks.length);
   loadTasksFromSupabase();
   loadCategoriesFromSupabase();
   loadLaterFromSupabase();
 
-//   const pollIv = setInterval(() => {  
-//     loadTasksFromSupabase();
-//     loadLaterFromSupabase();
-//   }, 5000);
-const pollIv = null;
+  const pollIv = setInterval(() => {
+    loadTasksFromSupabase();
+    loadLaterFromSupabase();
+  }, 5000);
 
-  // タスクリマインド通知（1分ごとにチェック）
-console.log("notifIv登録します");  
+  return () => { clearInterval(pollIv); };
+}, []);
+
+useEffect(() => {
   const notifIv = setInterval(() => {
-   console.log("通知チェック:", nowMin(), Notification?.permission, "tasks件数:", tasks.length);
+    console.log("通知チェック:", nowMin(), Notification?.permission, "tasks件数:", tasks.length);
     if (Notification?.permission !== "granted") return;
     const currentMin = nowMin();
 
-    // 毎朝サマリー通知（起床時刻に送信）
     const wakeMin = toMin(wakeTime);
     if (currentMin === wakeMin) {
       const todayTasks = tasks.filter(t => {
@@ -485,7 +484,7 @@ console.log("notifIv登録します");
     });
   }, 5000);
 
-  return () => { clearInterval(pollIv); clearInterval(notifIv); };
+  return () => { clearInterval(notifIv); };
 }, [tasks, wakeTime]);
 
   useEffect(() => {

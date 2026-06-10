@@ -446,6 +446,7 @@ console.log("useEffect実行！tasks:", tasks.length);
 const pollIv = null;
 
   // タスクリマインド通知（1分ごとにチェック）
+console.log("notifIv登録します");  
   const notifIv = setInterval(() => {
    console.log("通知チェック:", nowMin(), Notification?.permission, "tasks件数:", tasks.length);
     if (Notification?.permission !== "granted") return;

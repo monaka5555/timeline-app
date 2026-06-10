@@ -434,6 +434,7 @@ async function loadLaterFromSupabase() {
   }, [doneMap, categories, wakeTime, sleepTime, freeThreshold, themeId]); 
 
 useEffect(() => {
+console.log("useEffect実行！tasks:", tasks.length);
   loadTasksFromSupabase();
   loadCategoriesFromSupabase();
   loadLaterFromSupabase();

@@ -439,10 +439,11 @@ console.log("useEffect実行！tasks:", tasks.length);
   loadCategoriesFromSupabase();
   loadLaterFromSupabase();
 
-  const pollIv = setInterval(() => {  
-    loadTasksFromSupabase();
-    loadLaterFromSupabase();
-  }, 5000);
+//   const pollIv = setInterval(() => {  
+//     loadTasksFromSupabase();
+//     loadLaterFromSupabase();
+//   }, 5000);
+const pollIv = null;
 
   // タスクリマインド通知（1分ごとにチェック）
   const notifIv = setInterval(() => {

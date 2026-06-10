@@ -312,6 +312,14 @@ function App(){
   const [now, setNow]           = useState(nowMin());
   const [modal, setModal]       = useState(null);
 
+  const [notifPermission, setNotifPermission] = useState(Notification?.permission || "default");
+
+const requestNotifPermission = async () => {
+  if (!("Notification" in window)) { alert("このブラウザは通知に対応していません"); return; }
+  const result = await Notification.requestPermission();
+  setNotifPermission(result);
+};
+
   // ★ 選択日付（dateKey形式）
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey());
 async function loadTasksFromSupabase() {
@@ -583,18 +591,16 @@ async function testSupabase() {
           onEdit={item=>setModal({type:"later",data:item})}
         />
       )}
-      {tab==="stats"    && <StatsView tasks={combinedTasks} categories={categories}/>}
-      {tab==="settings" && (
-        <SettingsView wakeTime={wakeTime} setWakeTime={setWakeTime}
+      <SettingsView wakeTime={wakeTime} setWakeTime={setWakeTime}
           sleepTime={sleepTime} setSleepTime={setSleepTime}
           freeThreshold={freeThreshold} setFreeThreshold={setFreeThreshold}
           categories={categories} setCategories={setCategories}
           themeId={themeId} setThemeId={setThemeId}
           googleSyncStatus={googleSyncStatus} onSyncNow={handleSyncNow}
           onSyncSpreadsheet={handleSyncSpreadsheet}
+          notifPermission={notifPermission} onRequestNotif={requestNotifPermission}
           onEditCat={c=>setModal({type:"category",data:c})} onAddCat={()=>setModal({type:"category",data:null})}
         />
-      )}
 
       {(tab==="timeline"||tab==="later") && (
         <button onClick={()=>setModal({type:tab==="timeline"?"task":"later",data:null})}
@@ -1050,7 +1056,7 @@ function StatsView({tasks,categories}){
 }
 
 // ─── SETTINGS VIEW ────────────────────────────────────────────────────────────
-function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold,setFreeThreshold,categories,setCategories,themeId,setThemeId,googleSyncStatus,onSyncNow,onSyncSpreadsheet,onEditCat,onAddCat}){
+function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold,setFreeThreshold,categories,setCategories,themeId,setThemeId,googleSyncStatus,onSyncNow,onSyncSpreadsheet,notifPermission,onRequestNotif,onEditCat,onAddCat}){
   const statusLabel={idle:"未同期",loading:"同期中…",ok:"同期済み ✓",error:"失敗 ⚠️"}[googleSyncStatus]||"";
   const statusColor={idle:C.textSub,loading:C.amber,ok:C.green,error:C.red}[googleSyncStatus]||C.textSub;
   return(
@@ -1093,6 +1099,19 @@ function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold
         <button onClick={onAddCat} style={{marginTop:10,width:"100%",padding:10,background:C.accentDim,border:`1px dashed ${C.accentGlow}`,borderRadius:10,color:C.accent,fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
           <Icon name="plus" size={14} color={C.accent}/> カテゴリを追加
         </button>
+      </SG>
+      <SG title="通知">
+        <div style={{padding:"10px 12px",borderRadius:10,background:C.accentDim,border:`1px solid ${C.accent}44`}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.accent,marginBottom:4}}>🔔 プッシュ通知</div>
+          <div style={{fontSize:11,color:C.textSub,lineHeight:1.5,marginBottom:8}}>
+            {notifPermission==="granted" ? "通知が有効です ✅" : notifPermission==="denied" ? "通知がブロックされています。ブラウザの設定から許可してください。" : "通知を許可するとタスクのリマインダーが届きます。"}
+          </div>
+          {notifPermission!=="granted" && notifPermission!=="denied" && (
+            <button onClick={onRequestNotif} style={{fontSize:11,color:C.accent,background:C.accentDim,border:`1px solid ${C.accent}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontWeight:600}}>
+              <Icon name="bell" size={12} color={C.accent}/>通知を許可する
+            </button>
+          )}
+        </div>
       </SG>
       <SG title="データ管理">
         <div style={{padding:"10px 12px",borderRadius:10,background:"#4285F422",border:"1px solid #4285F444",marginBottom:10}}>

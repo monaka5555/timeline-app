@@ -460,7 +460,7 @@ useEffect(() => {
       if (todayTasks.length > 0) {
         new Notification("📅 今日のタスク", {
           body: todayTasks.map(t => `${t.time} ${t.title}`).join("\n"),
-          icon: "/favicon.ico",
+          icon: null,
         });
       }
     }
@@ -475,11 +475,11 @@ useEffect(() => {
       if (currentMin === notifMin) {
         new Notification(`⏰ ${task.title}`, {
           body: `${task.remindMinutes}分後に開始します（${task.time}）`,
-          icon: "/favicon.ico",
+          icon: null,
         });
       }
     });
-  }, 60000);
+  }, 5000);
 
   return () => { clearInterval(pollIv); clearInterval(notifIv); };}, []);
 

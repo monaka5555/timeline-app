@@ -450,7 +450,7 @@ useEffect(() => {
     const currentMin = nowMin();
 
     // 毎朝サマリー通知（起床時刻に送信）
-    const wakeMin = timeToMin(wakeTime);
+    const wakeMin = toMin(wakeTime);
     if (currentMin === wakeMin) {
       const todayTasks = tasks.filter(t => {
         if (t.isGoogle) return false;
@@ -470,7 +470,7 @@ useEffect(() => {
       const isRepeat = task.repeat && task.repeat.type !== "none";
       const taskDate = isRepeat ? null : task.dateKey;
       if (!isRepeat && taskDate !== todayKey()) return;
-      const taskMin = timeToMin(task.time);
+      const taskMin = toMin(task.time);
       const notifMin = taskMin - task.remindMinutes;
       if (currentMin === notifMin) {
         new Notification(`⏰ ${task.title}`, {

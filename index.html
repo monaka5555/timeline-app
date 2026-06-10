@@ -32,7 +32,7 @@ const { useState, useEffect, useRef, useCallback } = React;
 // ─── STORAGE ──────────────────────────────────────────────────────────────────
 const STORAGE_KEY = "timeline_app_v2";
 function loadData() { try { const r=localStorage.getItem(STORAGE_KEY); return r?JSON.parse(r):null; } catch{return null;} }
-function saveData(data) { try { localStorage.setItem(STORAGE_KEY,JSON.stringify(data)); showToast(); } catch{} }
+function saveData(data) { try { localStorage.setItem(STORAGE_KEY,JSON.stringify(data)); } catch{} }
 function showToast(msg) { const el=document.getElementById("toast"); if(!el)return; if(msg)el.textContent=msg; else el.textContent="💾 保存しました"; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),1800); }
 
 // ─── DATE HELPERS ─────────────────────────────────────────────────────────────
@@ -466,15 +466,19 @@ useEffect(() => {
   const pinnedTasks = combinedTasks.filter(t => t.pinned);
   const pinnedLater = later.filter(t => t.pinned);
 
-  const handleToggleDone = async (task) => {
-  if (task.isGoogle) {
-    setGoogleTasks(p => p.map(t => t.id===task.id ? {...t,done:!t.done} : t));
-  } else {
-    const newDone = !getTaskDone(task);
-    setTaskDone(task, newDone);
-    await supabase.from("tasks").update({ done: newDone }).eq("id", task.id);
-  }
-};
+ const handleToggleDone = async (task) => {
+    if (task.isGoogle) {
+      setGoogleTasks(p => p.map(t => t.id===task.id ? {...t,done:!t.done} : t));
+    } else {
+      const newDone = !getTaskDone(task);
+      setTaskDone(task, newDone);
+      // 繰り返しタスクはdoneMapのみ管理、Supabaseには保存しない
+      const isRepeat = task.repeat && task.repeat.type !== "none";
+      if (!isRepeat) {
+        await supabase.from("tasks").update({ done: newDone }).eq("id", task.id);
+      }
+    }
+  }; 
 
   const handleTogglePin = (task) => {
     if (task.isGoogle) return;

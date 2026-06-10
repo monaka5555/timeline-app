@@ -433,7 +433,12 @@ async function loadLaterFromSupabase() {
     saveData({doneMap, categories, settings:{wakeTime,sleepTime,freeThreshold,themeId}});
   }, [doneMap, categories, wakeTime, sleepTime, freeThreshold, themeId]); 
 
-const pollIv = setInterval(() => {
+useEffect(() => {
+  loadTasksFromSupabase();
+  loadCategoriesFromSupabase();
+  loadLaterFromSupabase();
+
+  const pollIv = setInterval(() => {  
     loadTasksFromSupabase();
     loadLaterFromSupabase();
   }, 5000);

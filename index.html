@@ -446,9 +446,9 @@ useEffect(() => {
   return () => { clearInterval(pollIv); };
 }, []);
 
+const notifiedRef = React.useRef(new Set());
 useEffect(() => {
   const notifIv = setInterval(() => {
-    console.log("通知チェック:", nowMin(), Notification?.permission, "tasks件数:", tasks.length);
     if (Notification?.permission !== "granted") return;
     const currentMin = nowMin();
 
@@ -475,13 +475,15 @@ useEffect(() => {
       const taskMin = toMin(task.time);
       const notifMin = taskMin - task.remindMinutes;
       console.log("タスク確認:", task.title, "通知予定:", notifMin, "現在:", currentMin);
-      if (currentMin === notifMin) {
+      const notifKey = `${task.id}:${currentMin}`;
+      if (currentMin === notifMin && !notifiedRef.current.has(notifKey)) {
+        notifiedRef.current.add(notifKey);
         new Notification(`⏰ ${task.title}`, {
           body: `${task.remindMinutes}分後に開始します（${task.time}）`,
           icon: null,
         });
       }
-    });
+});
   }, 5000);
 
   return () => { clearInterval(notifIv); };

@@ -437,6 +437,49 @@ useEffect(() => {
   }, 5000);
 
   return () => { clearInterval(pollIv); };
+  }, []);
+  const notifiedRef = React.useRef(new Set());
+const tasksRef = React.useRef(tasks);
+const wakeTimeRef = React.useRef(wakeTime);
+useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+useEffect(() => { wakeTimeRef.current = wakeTime; }, [wakeTime]);
+
+useEffect(() => {
+  const notifIv = setInterval(() => {
+    if (Notification?.permission !== "granted") return;
+    const currentMin = nowMin();
+    const wakeMin = toMin(wakeTimeRef.current);
+    if (currentMin === wakeMin) {
+      const todayTasks = tasksRef.current.filter(t => {
+        if (t.isGoogle) return false;
+        const isRepeat = t.repeat && t.repeat.type !== "none";
+        return isRepeat || t.dateKey === todayKey();
+      });
+      if (todayTasks.length > 0) {
+        new Notification("📅 今日のタスク", {
+          body: todayTasks.map(t => `${t.time} ${t.title}`).join("\n"),
+          icon: null,
+        });
+      }
+    }
+    tasksRef.current.forEach(task => {
+      if (task.isGoogle || task.remindMinutes == null) return;
+      const isRepeat = task.repeat && task.repeat.type !== "none";
+      const taskDate = isRepeat ? null : task.dateKey;
+      if (!isRepeat && taskDate !== todayKey()) return;
+      const taskMin = toMin(task.time);
+      const notifMin = taskMin - task.remindMinutes;
+      const notifKey = `${task.id}:${currentMin}`;
+      if (currentMin === notifMin && !notifiedRef.current.has(notifKey)) {
+        notifiedRef.current.add(notifKey);
+        new Notification(`⏰ ${task.title}`, {
+          body: `${task.remindMinutes}分後に開始します（${task.time}）`,
+          icon: null,
+        });
+      }
+    });
+  }, 5000);
+  return () => { clearInterval(notifIv); };
 }, []);
 
   useEffect(() => {

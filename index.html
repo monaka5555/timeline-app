@@ -320,9 +320,9 @@ const requestNotifPermission = async () => {
   if (!("Notification" in window)) { alert("このブラウザは通知に対応していません"); return; }
   const result = await Notification.requestPermission();
   setNotifPermission(result);
-  if (result === "granted") {
-    await registerPushSubscription();
-  }
+    //   if (result === "granted") {
+      //   await registerPushSubscription();
+    //   }
 };
 
 const registerPushSubscription = async () => {

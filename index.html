@@ -36,7 +36,6 @@ function saveData(data) { try { localStorage.setItem(STORAGE_KEY,JSON.stringify(
 function showToast(msg) { const el=document.getElementById("toast"); if(!el)return; if(msg)el.textContent=msg; else el.textContent="💾 保存しました"; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),1800); }
 
 // ─── DATE HELPERS ─────────────────────────────────────────────────────────────
-// dateKey: "YYYY-MM-DD" 形式
 function dateToKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function keyToDate(k) { const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
 function todayKey() { return dateToKey(new Date()); }
@@ -101,6 +100,7 @@ function Icon({name,size=16,color,style:s={}}) {
     chevL:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M10 4l-4 4 4 4" stroke={col} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
     chevR:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke={col} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
     home:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M2 7l6-5 6 5v7H10v-4H6v4H2V7z" stroke={col} strokeWidth="1.5" strokeLinejoin="round"/></svg>,
+    bell:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 014 4v3l1 1.5H3L4 9V6a4 4 0 014-4z" stroke={col} strokeWidth="1.5" strokeLinejoin="round"/><path d="M6.5 12.5a1.5 1.5 0 003 0" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
   };
   return <span style={{display:"inline-flex",alignItems:"center",...s}}>{icons[name]||null}</span>;
 }
@@ -132,9 +132,58 @@ function repeatLabel(r){
 }
 function inputSt(){return{width:"100%",background:C.bg,border:`1px solid ${C.borderStrong}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:14,outline:"none",boxSizing:"border-box",colorScheme:C.dark?"dark":"light"};}
 
+// ─── PUSH NOTIFICATION HELPERS（App関数の外側に定義） ─────────────────────────
+const VAPID_PUBLIC = "BLBH0_yil_wptF7ivt5sTz8oJJ0ZdFQ3HxZzxBfzhjwEbDI50OuyDiZ8MuLyAhBpJaHD_5GFQicXFdF_u_vejPU";
+const PUSH_WORKER_URL = "https://push-notify.sa712ys.workers.dev/";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+async function registerPushSubscription() {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      console.log("Push通知非対応ブラウザ");
+      return null;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) return existing;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
+    });
+    // Cloudflare Workerに購読情報を登録
+    await fetch(`${PUSH_WORKER_URL}subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sub),
+    });
+    return sub;
+  } catch (e) {
+    console.error("Push購読失敗:", e);
+    return null;
+  }
+}
+
+// Service Worker登録（App関数の外側）
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/timeline-app/sw.js").then(reg => {
+    console.log("SW登録成功:", reg.scope);
+  }).catch(err => {
+    console.error("SW登録失敗:", err);
+  });
+}
+
 // ─── ICAL PARSER (RRULE対応) ──────────────────────────────────────────────────
 function parseICal(icalText, targetDate) {
-  // targetDate: Dateオブジェクト（表示したい日）
   const lines = icalText.split(/\r?\n/);
   const rawEvents = [];
   let cur = null;
@@ -251,22 +300,16 @@ const DEFAULT_LATER=[
   {id:103,title:"通院時に話すテーマをまとめる",categoryId:"health",pinned:false},
 ];
 
-// ★ GAS WebApp エンドポイント（デプロイ後にここを書き換える）
 const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwD8c4ZY6dej8uYVBqOCBvUihHhdVEdWQxakdIvxXdpoO71IPTvMPXbCIeOfkQRCPg/exec";
 const SUPABASE_URL = "https://urndyzmvxozbatfooszf.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybmR5em12eG96YmF0Zm9vc3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY1MjgsImV4cCI6MjA5NjAzMjUyOH0.ZBUI8HRLS3flGOzpv4VuVHoNi4ISXGOid1kv6lgnqVI";
 
-const supabase = window.supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_KEY
-);
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─── タスクがその日に表示すべきか判定 ────────────────────────────────────────
 function taskMatchesDate(task, dateKey) {
   const r = task.repeat;
-  // 日付指定タスク（繰り返しなし・特定日）
   if (task.dateKey) return task.dateKey === dateKey;
-  // 繰り返しなし・dateKey未設定 → 今日のみ
   if (!r || r.type === "none") return dateKey === todayKey();
 
   const tgt = keyToDate(dateKey);
@@ -289,7 +332,6 @@ function taskMatchesDate(task, dateKey) {
   return false;
 }
 
-// 完了状態はdateKey別に管理
 function getDoneKey(taskId, dateKey) { return `done:${taskId}:${dateKey}`; }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
@@ -299,10 +341,10 @@ function App(){
 
   const [tab, setTab]           = useState("timeline");
   const [tasks, setTasks] = useState([]);
-  const [doneMap, setDoneMap]   = useState(saved?.doneMap || {}); // {`done:id:dateKey`: bool}
+  const [doneMap, setDoneMap]   = useState(saved?.doneMap || {});
   const [googleTasks, setGoogleTasks]   = useState([]);
   const [googleSyncStatus, setGoogleSyncStatus] = useState("idle");
-  const [icalRaw, setIcalRaw]   = useState(null); // 生iCalテキストをキャッシュ
+  const [icalRaw, setIcalRaw]   = useState(null);
   const [later, setLater]       = useState(saved?.later || DEFAULT_LATER);
   const [categories, setCategories] = useState(saved?.categories || DEFAULT_CATEGORIES);
   const [wakeTime, setWakeTime] = useState(saved?.settings?.wakeTime || "07:00");
@@ -311,89 +353,56 @@ function App(){
   const [themeId, setThemeId]   = useState(saved?.settings?.themeId || "craft");
   const [now, setNow]           = useState(nowMin());
   const [modal, setModal]       = useState(null);
+  const [pushStatus, setPushStatus] = useState("idle"); // idle | requesting | granted | denied
 
-  // ★ 選択日付（dateKey形式）
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey());
-async function loadTasksFromSupabase() {
-  try {
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .order("time");
 
-    if (error) {
-      console.error("Supabase読込エラー:", error.message);
-      return;
-    }
-
-    if (!data || data.length === 0) return;
-
-   const loaded = data.map(row => ({
-      id: row.id,
-      title: row.title,
-      time: row.time,
-      duration: row.duration || 30,
-      categoryId: row.category_id || "other",
-      done: row.done || false,
-      pinned: row.pinned || false,
-      note: row.note || "",
-      dateKey: row.date_key || null,
-      repeat: row.repeat ? (typeof row.repeat === "string" ? JSON.parse(row.repeat) : row.repeat) : { type: "none", interval: 1, end: { type: "none" } },
-      remindMinutes: row.remind_minutes ?? null,
-    }));
-    setTasks(loaded);
-
-    // SupabaseのdoneをdoneMapに反映
-    setDoneMap(prev => {
-      const next = { ...prev };
-      loaded.forEach(t => {
-        if (t.done && t.dateKey) {
-          next[`done:${t.id}:${t.dateKey}`] = true;
-        }
+  async function loadTasksFromSupabase() {
+    try {
+      const { data, error } = await supabase.from("tasks").select("*").order("time");
+      if (error) { console.error("Supabase読込エラー:", error.message); return; }
+      if (!data || data.length === 0) return;
+      const loaded = data.map(row => ({
+        id: row.id, title: row.title, time: row.time,
+        duration: row.duration || 30, categoryId: row.category_id || "other",
+        done: row.done || false, pinned: row.pinned || false, note: row.note || "",
+        dateKey: row.date_key || null,
+        repeat: row.repeat ? (typeof row.repeat === "string" ? JSON.parse(row.repeat) : row.repeat) : { type: "none", interval: 1, end: { type: "none" } },
+        remindMinutes: row.remind_minutes ?? null,
+      }));
+      setTasks(loaded);
+      setDoneMap(prev => {
+        const next = { ...prev };
+        loaded.forEach(t => { if (t.done && t.dateKey) next[`done:${t.id}:${t.dateKey}`] = true; });
+        return next;
       });
-      return next;
-    }); 
-  } catch (e) {
-    console.error("Supabase読込失敗:", e.message);
+    } catch (e) { console.error("Supabase読込失敗:", e.message); }
   }
-}
-async function loadCategoriesFromSupabase() {
-  const { data, error } = await supabase.from("categories").select("*").order("sort_order");
-  if (error || !data || data.length === 0) return;
-  setCategories(data.map(row => ({
-    id: row.id,
-    name: row.name,
-    color: row.color,
-    bg: row.bg,
-  })));
-}
 
-async function loadLaterFromSupabase() {
-  const { data, error } = await supabase.from("later").select("*").order("created_at");
-  if (error || !data || data.length === 0) return;
-  setLater(data.map(row => ({
-    id: row.id,
-    title: row.title,
-    categoryId: row.category_id,
-    note: row.note || "",
-    pinned: row.pinned || false,
-  })));
-}
+  async function loadCategoriesFromSupabase() {
+    const { data, error } = await supabase.from("categories").select("*").order("sort_order");
+    if (error || !data || data.length === 0) return;
+    setCategories(data.map(row => ({ id: row.id, name: row.name, color: row.color, bg: row.bg })));
+  }
+
+  async function loadLaterFromSupabase() {
+    const { data, error } = await supabase.from("later").select("*").order("created_at");
+    if (error || !data || data.length === 0) return;
+    setLater(data.map(row => ({ id: row.id, title: row.title, categoryId: row.category_id, note: row.note || "", pinned: row.pinned || false })));
+  }
 
   C = THEMES.find(t => t.id === themeId) || THEMES[0];
 
-  // Google同期
   const fetchGoogleCalendar = useCallback(async (dateKey) => {
     const target = dateKey || selectedDateKey;
     setGoogleSyncStatus("loading");
     const icalUrl = "https://calendar.google.com/calendar/ical/sa712ys%40gmail.com/private-11d3de61a5a57165c6b0bf9419905b9f/basic.ics";
-    const proxies = [
-      `https://ical-proxy.sa712ys.workers.dev/?url=${encodeURIComponent(icalUrl)}`,];
+    const proxies = [`https://ical-proxy.sa712ys.workers.dev/?url=${encodeURIComponent(icalUrl)}`];
     const fetchWithTimeout = (url, ms) => Promise.race([
       fetch(url),
       new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")),ms))
     ]);
-    let text = icalRaw; // キャッシュがあれば再利用
+    let text = icalRaw;
     if (!text) {
       let lastErr = null;
       for (const proxyUrl of proxies) {
@@ -404,7 +413,7 @@ async function loadLaterFromSupabase() {
           if (!text.includes("BEGIN:VCALENDAR")) throw new Error("Invalid iCal");
           setIcalRaw(text);
           break;
-        } catch(e) { console.warn(`プロキシ失敗:`, e.message); lastErr = e; }
+        } catch(e) { console.warn("プロキシ失敗:", e.message); lastErr = e; }
       }
       if (!text) { console.error("全プロキシ失敗:", lastErr); setGoogleSyncStatus("error"); return; }
     }
@@ -413,7 +422,6 @@ async function loadLaterFromSupabase() {
     setGoogleSyncStatus("ok");
   }, [selectedDateKey, icalRaw]);
 
-  // 日付が変わったらGoogleタスクを再パース（キャッシュ済みiCalから）
   useEffect(() => {
     if (icalRaw) {
       const parsed = parseICal(icalRaw, keyToDate(selectedDateKey));
@@ -421,23 +429,20 @@ async function loadLaterFromSupabase() {
     }
   }, [selectedDateKey]);
 
- useEffect(() => {
+  useEffect(() => {
     saveData({doneMap, categories, settings:{wakeTime,sleepTime,freeThreshold,themeId}});
-  }, [doneMap, categories, wakeTime, sleepTime, freeThreshold, themeId]); 
+  }, [doneMap, categories, wakeTime, sleepTime, freeThreshold, themeId]);
 
-useEffect(() => {
-  loadTasksFromSupabase();
-  loadCategoriesFromSupabase();
-  loadLaterFromSupabase();
-
-  // 5秒ポーリング
-  const pollIv = setInterval(() => {
+  useEffect(() => {
     loadTasksFromSupabase();
+    loadCategoriesFromSupabase();
     loadLaterFromSupabase();
-  }, 5000);
-
-  return () => { clearInterval(pollIv); };
-}, []);
+    const pollIv = setInterval(() => {
+      loadTasksFromSupabase();
+      loadLaterFromSupabase();
+    }, 5000);
+    return () => { clearInterval(pollIv); };
+  }, []);
 
   useEffect(() => {
     fetchGoogleCalendar(selectedDateKey);
@@ -446,10 +451,34 @@ useEffect(() => {
     return () => { clearInterval(iv); clearInterval(calIv); };
   }, []);
 
-  // 選択日のタスクを絞り込むf
+  // ─── Push通知の許可リクエスト ─────────────────────────────────────────────
+  const handleRequestPush = async () => {
+    if (!("Notification" in window)) {
+      alert("このブラウザは通知に対応していません");
+      return;
+    }
+    setPushStatus("requesting");
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      setPushStatus("granted");
+      await registerPushSubscription();
+      showToast("🔔 通知を有効にしました");
+    } else {
+      setPushStatus("denied");
+      showToast("通知が拒否されました");
+    }
+  };
+
+  // 起動時にすでに許可済みか確認
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "granted") {
+      setPushStatus("granted");
+    } else if ("Notification" in window && Notification.permission === "denied") {
+      setPushStatus("denied");
+    }
+  }, []);
+
   const dayTasks = tasks.filter(t => taskMatchesDate(t, selectedDateKey));
- 
-  // 完了状態を取得
   const getTaskDone = (task) => doneMap[getDoneKey(task.id, selectedDateKey)] ?? task.done;
   const setTaskDone = (task, val) => setDoneMap(p => ({...p, [getDoneKey(task.id, selectedDateKey)]: val}));
 
@@ -466,92 +495,47 @@ useEffect(() => {
   const pinnedTasks = combinedTasks.filter(t => t.pinned);
   const pinnedLater = later.filter(t => t.pinned);
 
- const handleToggleDone = async (task) => {
+  const handleToggleDone = async (task) => {
     if (task.isGoogle) {
       setGoogleTasks(p => p.map(t => t.id===task.id ? {...t,done:!t.done} : t));
     } else {
       const newDone = !getTaskDone(task);
       setTaskDone(task, newDone);
-      // 繰り返しタスクはdoneMapのみ管理、Supabaseには保存しない
       const isRepeat = task.repeat && task.repeat.type !== "none";
       if (!isRepeat) {
         await supabase.from("tasks").update({ done: newDone }).eq("id", task.id);
       }
     }
-  }; 
+  };
 
   const handleTogglePin = (task) => {
     if (task.isGoogle) return;
     setTasks(p => p.map(t => t.id===task.id ? {...t,pinned:!t.pinned} : t));
   };
- const handleDelete = async (task) => {
+
+  const handleDelete = async (task) => {
     if (task.isGoogle) { alert("Googleカレンダーの予定はカレンダーアプリ側から削除してください"); return; }
     setTasks(p => p.filter(t => t.id !== task.id));
-    console.log("削除ID:", task.id, typeof task.id);
     const { error } = await supabase.from("tasks").delete().eq("id", task.id);
     console.log("削除結果:", error);
-  }; 
+  };
 
   const handleSyncNow = () => { setIcalRaw(null); fetchGoogleCalendar(selectedDateKey); };
 
- async function saveTasksToSupabase(taskList) {
-  const rows = taskList
-    .filter(t => !t.isGoogle)
-    .map(t => ({
-      id: t.id,
-      date_key: t.dateKey || null,
-      title: t.title,
-      time: t.time,
-      duration: t.duration || 0,
-      category_id: t.categoryId || "",
+  async function saveTasksToSupabase(taskList) {
+    const rows = taskList.filter(t => !t.isGoogle).map(t => ({
+      id: t.id, date_key: t.dateKey || null, title: t.title, time: t.time,
+      duration: t.duration || 0, category_id: t.categoryId || "",
       category_name: getCat(t.categoryId)?.name || "",
-      done: !!t.done,
-      pinned: !!t.pinned,
+      done: !!t.done, pinned: !!t.pinned,
       remind_minutes: t.remindMinutes ?? null,
       note: t.note || "",
       repeat: t.repeat ? JSON.stringify(t.repeat) : null,
     }));
-
-  const { error } = await supabase
-    .from("tasks")
-    .upsert(rows, { onConflict: "id" });
-
-  if (error) {
-    console.error("Supabase保存エラー:", error.message);
-    showToast("❌ 保存失敗");
+    const { error } = await supabase.from("tasks").upsert(rows, { onConflict: "id" });
+    if (error) { console.error("Supabase保存エラー:", error.message); showToast("❌ 保存失敗"); }
   }
-}
 
-async function testSupabase() {
-  const rows = tasks
-    .filter(t => !t.isGoogle)
-    .map(t => ({
-      id: t.id,
-      date_key: t.dateKey || null,
-      title: t.title,
-      time: t.time,
-      duration: t.duration || 0,
-      category_id: t.categoryId || "",
-      category_name: getCat(t.categoryId)?.name || "",
-      done: !!t.done,
-      pinned: !!t.pinned,
-      remind_minutes: t.remindMinutes ?? null,
-      note: t.note || "",
-      repeat: t.repeat ? JSON.stringify(t.repeat) : null,
-    }));
-
-  const { error } = await supabase
-    .from("tasks")
-    .upsert(rows, { onConflict: "id" });
-
-  if (error) {
-    alert("エラー: " + error.message);
-  } else {
-    alert(`Supabase保存成功！ (${rows.length}件)`);
-  }
-}
-
-  // ★ 同期ボタン：Supabaseへ保存
   const handleSyncSpreadsheet = async () => {
     await saveTasksToSupabase(tasks);
     alert(`✅ Supabaseに同期しました！ (${tasks.filter(t=>!t.isGoogle).length}件)`);
@@ -593,6 +577,7 @@ async function testSupabase() {
           googleSyncStatus={googleSyncStatus} onSyncNow={handleSyncNow}
           onSyncSpreadsheet={handleSyncSpreadsheet}
           onEditCat={c=>setModal({type:"category",data:c})} onAddCat={()=>setModal({type:"category",data:null})}
+          pushStatus={pushStatus} onRequestPush={handleRequestPush}
         />
       )}
 
@@ -612,11 +597,8 @@ async function testSupabase() {
           onClose={()=>setModal(null)}
           onSave={async t=>{
             let newTasks;
-            if(t.id) {
-              newTasks = tasks.map(x=>x.id===t.id?t:x);
-            } else {
-              newTasks = [...tasks,{...t,id:Date.now()}];
-            }
+            if(t.id) { newTasks = tasks.map(x=>x.id===t.id?t:x); }
+            else { newTasks = [...tasks,{...t,id:Date.now()}]; }
             setTasks(newTasks);
             setModal(null);
             await saveTasksToSupabase(newTasks);
@@ -625,18 +607,18 @@ async function testSupabase() {
       )}
       {modal?.type==="later" && (
         <LaterModal initial={modal.data} categories={categories} onClose={()=>setModal(null)}
-      onSave={async item=>{
-  const isNew = !item.id;
-  const newItem = isNew ? {...item, id: Date.now().toString()} : item;
-  if(isNew) setLater(p=>[...p, newItem]);
-  else setLater(p=>p.map(x=>x.id===item.id?item:x));
-  setModal(null);
-  await supabase.from("later").upsert({
-    id: newItem.id, title: newItem.title,
-    category_id: newItem.categoryId, note: newItem.note || "",
-    pinned: newItem.pinned || false,
-  }, { onConflict: "id" });
-}}
+          onSave={async item=>{
+            const isNew = !item.id;
+            const newItem = isNew ? {...item, id: Date.now().toString()} : item;
+            if(isNew) setLater(p=>[...p, newItem]);
+            else setLater(p=>p.map(x=>x.id===item.id?item:x));
+            setModal(null);
+            await supabase.from("later").upsert({
+              id: newItem.id, title: newItem.title,
+              category_id: newItem.categoryId, note: newItem.note || "",
+              pinned: newItem.pinned || false,
+            }, { onConflict: "id" });
+          }}
         />
       )}
       {modal?.type==="calendar" && (
@@ -647,22 +629,22 @@ async function testSupabase() {
       )}
       {modal?.type==="category" && (
         <CategoryModal initial={modal.data} onClose={()=>setModal(null)}
-       onSave={async cat=>{
-  const isNew = !categories.find(c=>c.id===cat.id);
-  const newCat = isNew ? {...cat, id: Date.now().toString()} : cat;
-  if(isNew) setCategories(p=>[...p, newCat]);
-  else setCategories(p=>p.map(c=>c.id===cat.id?cat:c));
-  setModal(null);
-  await supabase.from("categories").upsert({
-    id: newCat.id, name: newCat.name, color: newCat.color, bg: newCat.bg,
-    sort_order: categories.length
-  }, { onConflict: "id" });
-}}
-onDelete={async id=>{
-  setCategories(p=>p.filter(c=>c.id!==id));
-  setModal(null);
-  await supabase.from("categories").delete().eq("id", id);
-}}   
+          onSave={async cat=>{
+            const isNew = !categories.find(c=>c.id===cat.id);
+            const newCat = isNew ? {...cat, id: Date.now().toString()} : cat;
+            if(isNew) setCategories(p=>[...p, newCat]);
+            else setCategories(p=>p.map(c=>c.id===cat.id?cat:c));
+            setModal(null);
+            await supabase.from("categories").upsert({
+              id: newCat.id, name: newCat.name, color: newCat.color, bg: newCat.bg,
+              sort_order: categories.length
+            }, { onConflict: "id" });
+          }}
+          onDelete={async id=>{
+            setCategories(p=>p.filter(c=>c.id!==id));
+            setModal(null);
+            await supabase.from("categories").delete().eq("id", id);
+          }}
         />
       )}
     </div>
@@ -675,8 +657,6 @@ function Header({tab,doneCount,totalCount,pinnedTasks,pinnedLater,getCat,setTab,
   const selDate = keyToDate(selectedDateKey);
   const isToday = selectedDateKey === todayKey();
   const [showCalModal, setShowCalModal] = useState(false);
-
-  // 週ナビ：今日を中心に前後3日
   const weekDays = Array.from({length:7},(_,i)=>addDays(new Date(), i-3));
 
   return (
@@ -696,10 +676,8 @@ function Header({tab,doneCount,totalCount,pinnedTasks,pinnedLater,getCat,setTab,
         )}
       </div>
 
-      {/* ★ 日付ナビゲーター（タイムラインタブのみ） */}
       {tab==="timeline" && (
         <div style={{marginBottom:10}}>
-          {/* 週スクロール */}
           <div style={{display:"flex",gap:4,marginBottom:8,alignItems:"center"}}>
             <button onClick={()=>setSelectedDateKey(dateToKey(addDays(keyToDate(selectedDateKey),-1)))}
               style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -729,13 +707,11 @@ function Header({tab,doneCount,totalCount,pinnedTasks,pinnedLater,getCat,setTab,
               style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
               <Icon name="chevR" size={14} color={C.textSub}/>
             </button>
-            {/* カレンダーアイコン → 月間カレンダーモーダル */}
             <button onClick={()=>setShowCalModal(true)}
               style={{width:28,height:28,borderRadius:"50%",border:`1px solid ${C.border}`,background:C.surface,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
               <Icon name="calendar" size={14} color={C.accent}/>
             </button>
           </div>
-          {/* 選択日の表示 */}
           <div style={{fontSize:11,color:C.textSub,fontWeight:600,textAlign:"center",letterSpacing:1}}>
             {selDate.toLocaleDateString("ja-JP",{year:"numeric",month:"long",day:"numeric",weekday:"short"})}
             {isToday&&<span style={{marginLeft:6,color:C.accent,fontSize:10,background:C.accentDim,borderRadius:6,padding:"1px 6px"}}>今日</span>}
@@ -743,7 +719,6 @@ function Header({tab,doneCount,totalCount,pinnedTasks,pinnedLater,getCat,setTab,
         </div>
       )}
 
-      {/* ピン留めバー */}
       {[...pinnedTasks,...pinnedLater].length>0 && (
         <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:10}}>
           {pinnedTasks.map(t=>(
@@ -770,7 +745,7 @@ function CalendarModal({selectedDateKey,onClose,onSelect}){
 
   const firstDay = new Date(viewYear, viewMonth, 1);
   const lastDay  = new Date(viewYear, viewMonth+1, 0);
-  const startDow = firstDay.getDay(); // 何曜日始まり
+  const startDow = firstDay.getDay();
   const cells = [];
   for(let i=0;i<startDow;i++) cells.push(null);
   for(let d=1;d<=lastDay.getDate();d++) cells.push(new Date(viewYear,viewMonth,d));
@@ -781,17 +756,14 @@ function CalendarModal({selectedDateKey,onClose,onSelect}){
   return(
     <div style={{position:"fixed",inset:0,background:"#00000080",zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div style={{background:C.surface,borderRadius:"22px 22px 0 0",padding:"20px 16px 32px",width:"100%",maxWidth:430,margin:"0 auto",boxSizing:"border-box"}}>
-        {/* ヘッダー */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <button onClick={prevMonth} style={{width:32,height:32,borderRadius:"50%",border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="chevL" size={16} color={C.text}/></button>
           <div style={{fontSize:16,fontWeight:800}}>{viewYear}年{viewMonth+1}月</div>
           <button onClick={nextMonth} style={{width:32,height:32,borderRadius:"50%",border:`1px solid ${C.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><Icon name="chevR" size={16} color={C.text}/></button>
         </div>
-        {/* 曜日ヘッダー */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:6}}>
           {WEEKDAY_LABELS.map((d,i)=><div key={i} style={{textAlign:"center",fontSize:11,fontWeight:700,color:i===0?C.red:i===6?C.accent:C.textSub,padding:"4px 0"}}>{d}</div>)}
         </div>
-        {/* 日付グリッド */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
           {cells.map((d,i)=>{
             if(!d) return <div key={i}/>;
@@ -845,7 +817,6 @@ function TimelineView({tasks,now,wakeTime,sleepTime,freeThreshold,getCat,googleS
 
   return(
     <div style={{padding:"0 0 20px"}}>
-      {/* 同期ステータス */}
       <div style={{padding:"6px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           {googleSyncStatus==="loading"&&<span style={{fontSize:11,color:C.textSub,display:"flex",alignItems:"center",gap:4}}><Icon name="sync" size={11} color={C.textSub}/>同期中…</span>}
@@ -857,7 +828,6 @@ function TimelineView({tasks,now,wakeTime,sleepTime,freeThreshold,getCat,googleS
           <Icon name="sync" size={10} color={C.textSub}/>更新
         </button>
       </div>
-      {/* プログレスバー（今日のみ） */}
       {isToday&&(
         <div style={{padding:"10px 16px 8px"}}>
           <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.textSub,marginBottom:5}}>
@@ -990,16 +960,16 @@ function LaterView({items,setLater,getCat,onPromote,onEdit}){
             <div style={{fontSize:15,fontWeight:600,marginBottom:10}}>{item.title}</div>
             <div style={{display:"flex",gap:6}}>
               <Chip icon="promote" label="今日やる" color={C.green} onClick={()=>onPromote(item)}/>
-           <Chip icon={item.pinned?"pinFill":"pin"} label={item.pinned?"外す":"ピン"} color={C.pink} onClick={async()=>{
-  const newPinned=!item.pinned;
-  setLater(p=>p.map(x=>x.id===item.id?{...x,pinned:newPinned}:x));
-  await supabase.from("later").update({pinned:newPinned}).eq("id",item.id);
-}}/>
-<Chip icon="edit" label="編集" color={C.accent} onClick={()=>onEdit(item)}/>
-<Chip icon="trash" label="" color={C.red} onClick={async()=>{
-  setLater(p=>p.filter(x=>x.id!==item.id));
-  await supabase.from("later").delete().eq("id",item.id);
-}}/>   
+              <Chip icon={item.pinned?"pinFill":"pin"} label={item.pinned?"外す":"ピン"} color={C.pink} onClick={async()=>{
+                const newPinned=!item.pinned;
+                setLater(p=>p.map(x=>x.id===item.id?{...x,pinned:newPinned}:x));
+                await supabase.from("later").update({pinned:newPinned}).eq("id",item.id);
+              }}/>
+              <Chip icon="edit" label="編集" color={C.accent} onClick={()=>onEdit(item)}/>
+              <Chip icon="trash" label="" color={C.red} onClick={async()=>{
+                setLater(p=>p.filter(x=>x.id!==item.id));
+                await supabase.from("later").delete().eq("id",item.id);
+              }}/>
             </div>
           </div>
         );
@@ -1050,9 +1020,13 @@ function StatsView({tasks,categories}){
 }
 
 // ─── SETTINGS VIEW ────────────────────────────────────────────────────────────
-function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold,setFreeThreshold,categories,setCategories,themeId,setThemeId,googleSyncStatus,onSyncNow,onSyncSpreadsheet,onEditCat,onAddCat}){
+function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold,setFreeThreshold,categories,setCategories,themeId,setThemeId,googleSyncStatus,onSyncNow,onSyncSpreadsheet,onEditCat,onAddCat,pushStatus,onRequestPush}){
   const statusLabel={idle:"未同期",loading:"同期中…",ok:"同期済み ✓",error:"失敗 ⚠️"}[googleSyncStatus]||"";
   const statusColor={idle:C.textSub,loading:C.amber,ok:C.green,error:C.red}[googleSyncStatus]||C.textSub;
+
+  const pushLabel = {idle:"未設定",requesting:"確認中…",granted:"有効 ✓",denied:"拒否済み"}[pushStatus]||"";
+  const pushColor = {idle:C.textSub,requesting:C.amber,granted:C.green,denied:C.red}[pushStatus]||C.textSub;
+
   return(
     <div style={{padding:16}}>
       <SG title="カラーテーマ">
@@ -1095,6 +1069,23 @@ function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold
         </button>
       </SG>
       <SG title="データ管理">
+        {/* Push通知 */}
+        <div style={{padding:"10px 12px",borderRadius:10,background:C.greenDim,border:`1px solid ${C.green}44`,marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.green,display:"flex",alignItems:"center",gap:5}}><Icon name="bell" size={13} color={C.green}/>プッシュ通知</div>
+            <span style={{fontSize:11,color:pushColor,fontWeight:600}}>{pushLabel}</span>
+          </div>
+          <div style={{fontSize:11,color:C.textSub,lineHeight:1.5,marginBottom:8}}>アプリを閉じていてもタスクの開始時刻に通知が届きます。</div>
+          {pushStatus !== "granted" && pushStatus !== "denied" && (
+            <button onClick={onRequestPush} style={{fontSize:11,color:C.green,background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontWeight:600}}>
+              <Icon name="bell" size={12} color={C.green}/>通知を許可する
+            </button>
+          )}
+          {pushStatus === "denied" && (
+            <div style={{fontSize:11,color:C.red}}>通知が拒否されています。端末の設定から許可してください。</div>
+          )}
+        </div>
+        {/* Googleカレンダー同期 */}
         <div style={{padding:"10px 12px",borderRadius:10,background:"#4285F422",border:"1px solid #4285F444",marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <div style={{fontSize:12,fontWeight:700,color:"#4285F4"}}>🗓️ Googleカレンダー同期</div>
@@ -1156,8 +1147,6 @@ function TaskModal({initial,categories,selectedDateKey,onClose,onSave}){
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const setR=(k,v)=>setF(p=>({...p,repeat:{...p.repeat,[k]:v}}));
   const setRE=(k,v)=>setF(p=>({...p,repeat:{...p.repeat,end:{...p.repeat.end,[k]:v}}}));
-
-  // 日付指定モード
   const isDateSpecific = f.repeat?.type === "none";
 
   return(

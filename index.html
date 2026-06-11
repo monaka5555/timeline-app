@@ -313,10 +313,33 @@ function App(){
   const [modal, setModal]       = useState(null);
   const [notifPermission, setNotifPermission] = useState(Notification?.permission || "default");
 
+const VAPID_PUBLIC = 'BLBH0_yil_wptF7ivt5sTz8oJJ0ZdFQ3HxZzxBfzhjwEbDI50OuyDiZ8MuLyAhBpJaHD_5GFQicXFdF_u_vejPU';
+const PUSH_WORKER_URL = 'https://push-notify.sa712ys.workers.dev/';
+
 const requestNotifPermission = async () => {
   if (!("Notification" in window)) { alert("このブラウザは通知に対応していません"); return; }
   const result = await Notification.requestPermission();
   setNotifPermission(result);
+  if (result === "granted") {
+    await registerPushSubscription();
+  }
+};
+
+const registerPushSubscription = async () => {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('/timeline-app/sw.js');
+    await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: VAPID_PUBLIC,
+    });
+    // subscriptionをlocalStorageに保存
+    localStorage.setItem('pushSubscription', JSON.stringify(sub));
+    console.log("プッシュ購読完了:", sub.endpoint);
+  } catch(e) {
+    console.error("プッシュ購読失敗:", e.message);
+  }
 };
 
   // ★ 選択日付（dateKey形式）
@@ -463,10 +486,18 @@ useEffect(() => {
         return isRepeat || t.dateKey === todayKey();
       });
       if (todayTasks.length > 0) {
-        new Notification("📅 今日のタスク", {
-          body: todayTasks.map(t => `${t.time} ${t.title}`).join("\n"),
-          icon: null,
-        });
+       const sub = localStorage.getItem('pushSubscription');
+        if (sub) {
+          fetch(PUSH_WORKER_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subscription: JSON.parse(sub),
+              title: "📅 今日のタスク",
+              body: todayTasks.map(t => `${t.time} ${t.title}`).join("\n"),
+            }),
+          }).catch(e => console.error("Push送信失敗:", e));
+        }
       }
     }
     tasksRef.current.forEach(task => {
@@ -477,13 +508,21 @@ useEffect(() => {
       const taskMin = toMin(task.time);
       const notifMin = taskMin - task.remindMinutes;
       const notifKey = `${task.id}:${currentMin}`;
-      if (currentMin === notifMin && !notifiedRef.current.has(notifKey)) {
+    if (currentMin === notifMin && !notifiedRef.current.has(notifKey)) {
         notifiedRef.current.add(notifKey);
-        new Notification(`⏰ ${task.title}`, {
-          body: `${task.remindMinutes}分後に開始します（${task.time}）`,
-          icon: null,
-        });
-      }
+        const sub = localStorage.getItem('pushSubscription');
+        if (sub) {
+          fetch(PUSH_WORKER_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subscription: JSON.parse(sub),
+              title: `⏰ ${task.title}`,
+              body: `${task.remindMinutes}分後に開始します（${task.time}）`,
+            }),
+          }).catch(e => console.error("Push送信失敗:", e));
+        }
+      }  
     });
   }, 5000);
   return () => { clearInterval(notifIv); };

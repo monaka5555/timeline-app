@@ -134,7 +134,8 @@ function inputSt(){return{width:"100%",background:C.bg,border:`1px solid ${C.bor
 
 // ─── PUSH NOTIFICATION HELPERS（App関数の外側に定義） ─────────────────────────
 const VAPID_PUBLIC = "BLBH0_yil_wptF7ivt5sTz8oJJ0ZdFQ3HxZzxBfzhjwEbDI50OuyDiZ8MuLyAhBpJaHD_5GFQicXFdF_u_vejPU";
-const PUSH_WORKER_URL = "https://push-notify.sa712ys.workers.dev/";
+// 💡 先ほど {"ok":true} が確認できた、正しいCloudflare WorkerのURL
+const PUSH_WORKER_URL = "https://push-notify.sa712ys.workers.dev/"; 
 
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -154,26 +155,38 @@ async function registerPushSubscription() {
       return null;
     }
     const reg = await navigator.serviceWorker.ready;
-    const existing = await reg.pushManager.getSubscription();
-    if (existing) return existing;
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
-    });
-    // Cloudflare Workerに購読情報を登録
-    await fetch(`${PUSH_WORKER_URL}subscribe`, {
+    let sub = await reg.pushManager.getSubscription();
+    
+    // まだ購読がなければ新しく取得する
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
+      });
+    }
+
+    // 💡 修正ポイント：末尾に「subscribe」をつけて、新しいWorkerURLへ送信する
+    const res = await fetch(`${PUSH_WORKER_URL}subscribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(sub),
     });
+
+    if (res.ok) {
+      alert("✅ Cloudflare経由でSupabaseに購読情報が正常に保存されました！");
+    } else {
+      const errText = await res.text();
+      alert("❌ Workerへの送信に失敗しました: " + errText);
+    }
+
     return sub;
   } catch (e) {
-    console.error("Push購読失敗:", e);
+    alert("❌ エラーが発生しました: " + e.message);
     return null;
   }
 }
 
-// Service Worker登録（App関数の外側）
+// Service Worker登録
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/timeline-app/sw.js").then(reg => {
     console.log("SW登録成功:", reg.scope);

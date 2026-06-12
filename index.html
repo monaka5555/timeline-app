@@ -134,7 +134,7 @@ function inputSt(){return{width:"100%",background:C.bg,border:`1px solid ${C.bor
 
 // ─── PUSH NOTIFICATION HELPERS（App関数の外側に定義） ─────────────────────────
 const VAPID_PUBLIC = "BLBH0_yil_wptF7ivt5sTz8oJJ0ZdFQ3HxZzxBfzhjwEbDI50OuyDiZ8MuLyAhBpJaHD_5GFQicXFdF_u_vejPU";
-// 💡 先ほど {"ok":true} が確認できた、正しいCloudflare WorkerのURL
+// Cloudflare WorkerのURL
 const PUSH_WORKER_URL = "https://push-notify.sa712ys.workers.dev/"; 
 
 function urlBase64ToUint8Array(base64String) {
@@ -193,6 +193,27 @@ if ("serviceWorker" in navigator) {
   }).catch(err => {
     console.error("SW登録失敗:", err);
   });
+}
+
+async function sendTestNotification() {
+  try {
+    // 💡 先ほど設定したCloudflare WorkerのURL
+    const PUSH_WORKER_URL = "https://push-notify.sa712ys.workers.dev/"; 
+    
+    const res = await fetch(`${PUSH_WORKER_URL}send-test`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+
+    if (res.ok) {
+      alert("🚀 サーバーからiPhoneへ通知を発射しました！数秒待ってみてください。");
+    } else {
+      const txt = await res.text();
+      alert("❌ テスト送信の要求に失敗しました: " + txt);
+    }
+  } catch (e) {
+    alert("❌ エラー: " + e.message);
+  }
 }
 
 // ─── ICAL PARSER (RRULE対応) ──────────────────────────────────────────────────
@@ -1089,6 +1110,12 @@ function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold
             <span style={{fontSize:11,color:pushColor,fontWeight:600}}>{pushLabel}</span>
           </div>
           <div style={{fontSize:11,color:C.textSub,lineHeight:1.5,marginBottom:8}}>アプリを閉じていてもタスクの開始時刻に通知が届きます。</div>
+          
+          {/* 💡 テスト送信ボタン（常に表示するか、許可済みの時だけ出す場合は条件を変えられますが、テスト用に常に出るようにしています） */}
+          <button onClick={sendTestNotification} style={{fontSize:11,color:"#fff",background:C.green,border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontWeight:600,marginBottom: pushStatus !== "granted" ? 10 : 0}}>
+            🚀 テスト通知を送信
+          </button>
+          
           {pushStatus !== "granted" && pushStatus !== "denied" && (
             <button onClick={onRequestPush} style={{fontSize:11,color:C.green,background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontWeight:600}}>
               <Icon name="bell" size={12} color={C.green}/>通知を許可する

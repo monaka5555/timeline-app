@@ -132,91 +132,12 @@ function repeatLabel(r){
 }
 function inputSt(){return{width:"100%",background:C.bg,border:`1px solid ${C.borderStrong}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:14,outline:"none",boxSizing:"border-box",colorScheme:C.dark?"dark":"light"};}
 
-// ─── PUSH NOTIFICATION HELPERS（App関数の外側に定義） ─────────────────────────
-const VAPID_PUBLIC = "BLBH0_yil_wptF7ivt5sTz8oJJ0ZdFQ3HxZzxBfzhjwEbDI50OuyDiZ8MuLyAhBpJaHD_5GFQicXFdF_u_vejPU";
-// Cloudflare WorkerのURL
-const PUSH_WORKER_URL = "https://push-notify.sa712ys.workers.dev/"; 
+// ─── SUPABASE ─────────────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://urndyzmvxozbatfooszf.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybmR5em12eG96YmF0Zm9vc3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY1MjgsImV4cCI6MjA5NjAzMjUyOH0.ZBUI8HRLS3flGOzpv4VuVHoNi4ISXGOid1kv6lgnqVI";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-async function registerPushSubscription() {
-  try {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-      console.log("Push通知非対応ブラウザ");
-      return null;
-    }
-    const reg = await navigator.serviceWorker.ready;
-    let sub = await reg.pushManager.getSubscription();
-    
-    // まだ購読がなければ新しく取得する
-    if (!sub) {
-      sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
-      });
-    }
-
-    // 💡 修正ポイント：末尾に「subscribe」をつけて、新しいWorkerURLへ送信する
-    const res = await fetch(`${PUSH_WORKER_URL}subscribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sub),
-    });
-
-    if (res.ok) {
-      alert("✅ Cloudflare経由でSupabaseに購読情報が正常に保存されました！");
-    } else {
-      const errText = await res.text();
-      alert("❌ Workerへの送信に失敗しました: " + errText);
-    }
-
-    return sub;
-  } catch (e) {
-    alert("❌ エラーが発生しました: " + e.message);
-    return null;
-  }
-}
-
-// Service Worker登録
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/timeline-app/sw.js").then(reg => {
-    console.log("SW登録成功:", reg.scope);
-  }).catch(err => {
-    console.error("SW登録失敗:", err);
-  });
-}
-
-async function sendTestNotification() {
-  try {
-    // 💡 先ほど設定したCloudflare WorkerのURL
-    const PUSH_WORKER_URL = "https://push-notify.sa712ys.workers.dev/"; 
-    
-    const res = await fetch(`${PUSH_WORKER_URL}send-test`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" }
-    });
-
-    if (res.ok) {
-      alert("🚀 サーバーからiPhoneへ通知を発射しました！数秒待ってみてください。");
-    } else {
-      const txt = await res.text();
-      alert("❌ テスト送信の要求に失敗しました: " + txt);
-    }
-  } catch (e) {
-    alert("❌ エラー: " + e.message);
-  }
-}
-
-// ─── ICAL PARSER (RRULE対応) ──────────────────────────────────────────────────
+// ─── ICAL PARSER ──────────────────────────────────────────────────────────────
 function parseICal(icalText, targetDate) {
   const lines = icalText.split(/\r?\n/);
   const rawEvents = [];
@@ -318,27 +239,21 @@ const DEFAULT_CATEGORIES=[
   {id:"google",name:"🗓️ Google",color:"#4285F4",bg:"#4285F422"},
 ];
 const DEFAULT_TASKS=[
-  {id:1,title:"起床・朝のルーティン",time:"07:00",duration:30,categoryId:"health",done:false,pinned:true, dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
-  {id:2,title:"子どもたちの朝支度",  time:"07:30",duration:45,categoryId:"child", done:false,pinned:false,dateKey:null,repeat:{type:"weekday",interval:1,end:{type:"none"}},note:""},
-  {id:3,title:"服薬・身支度",        time:"08:05",duration:15,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
-  {id:4,title:"朝の家事",            time:"08:10",duration:80,categoryId:"house", done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
-  {id:5,title:"通院・外出準備",      time:"09:10",duration:50,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"none",   interval:1,end:{type:"none"}},note:""},
-  {id:6,title:"カウンセリング",      time:"11:30",duration:60,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"weekly", interval:1,days:[2],end:{type:"none"}},note:""},
-  {id:7,title:"昼食・休憩",          time:"13:00",duration:45,categoryId:"self",  done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
-  {id:8,title:"夕飯づくり",          time:"17:30",duration:45,categoryId:"house", done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
-  {id:9,title:"就寝準備",            time:"22:30",duration:30,categoryId:"health",done:false,pinned:true, dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:""},
+  {id:1,title:"起床・朝のルーティン",time:"07:00",duration:30,categoryId:"health",done:false,pinned:true, dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
+  {id:2,title:"子どもたちの朝支度",  time:"07:30",duration:45,categoryId:"child", done:false,pinned:false,dateKey:null,repeat:{type:"weekday",interval:1,end:{type:"none"}},note:"",remindMinutes:null},
+  {id:3,title:"服薬・身支度",        time:"08:05",duration:15,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
+  {id:4,title:"朝の家事",            time:"08:10",duration:80,categoryId:"house", done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
+  {id:5,title:"通院・外出準備",      time:"09:10",duration:50,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"none",   interval:1,end:{type:"none"}},note:"",remindMinutes:null},
+  {id:6,title:"カウンセリング",      time:"11:30",duration:60,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"weekly", interval:1,days:[2],end:{type:"none"}},note:"",remindMinutes:null},
+  {id:7,title:"昼食・休憩",          time:"13:00",duration:45,categoryId:"self",  done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
+  {id:8,title:"夕飯づくり",          time:"17:30",duration:45,categoryId:"house", done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
+  {id:9,title:"就寝準備",            time:"22:30",duration:30,categoryId:"health",done:false,pinned:true, dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
 ];
 const DEFAULT_LATER=[
   {id:101,title:"担任への家庭訪問メモ整理",    categoryId:"child", pinned:true},
   {id:102,title:"次男の漢字練習プリント準備",  categoryId:"child", pinned:false},
   {id:103,title:"通院時に話すテーマをまとめる",categoryId:"health",pinned:false},
 ];
-
-const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwD8c4ZY6dej8uYVBqOCBvUihHhdVEdWQxakdIvxXdpoO71IPTvMPXbCIeOfkQRCPg/exec";
-const SUPABASE_URL = "https://urndyzmvxozbatfooszf.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybmR5em12eG96YmF0Zm9vc3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY1MjgsImV4cCI6MjA5NjAzMjUyOH0.ZBUI8HRLS3flGOzpv4VuVHoNi4ISXGOid1kv6lgnqVI";
-
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─── タスクがその日に表示すべきか判定 ────────────────────────────────────────
 function taskMatchesDate(task, dateKey) {
@@ -370,11 +285,10 @@ function getDoneKey(taskId, dateKey) { return `done:${taskId}:${dateKey}`; }
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 function App(){
-
   const saved = loadData();
 
   const [tab, setTab]           = useState("timeline");
-  const [tasks, setTasks] = useState([]);
+  const [tasks, setTasks]       = useState([]);
   const [doneMap, setDoneMap]   = useState(saved?.doneMap || {});
   const [googleTasks, setGoogleTasks]   = useState([]);
   const [googleSyncStatus, setGoogleSyncStatus] = useState("idle");
@@ -387,8 +301,6 @@ function App(){
   const [themeId, setThemeId]   = useState(saved?.settings?.themeId || "craft");
   const [now, setNow]           = useState(nowMin());
   const [modal, setModal]       = useState(null);
-  const [pushStatus, setPushStatus] = useState("idle"); // idle | requesting | granted | denied
-
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey());
 
   async function loadTasksFromSupabase() {
@@ -405,11 +317,6 @@ function App(){
         remindMinutes: row.remind_minutes ?? null,
       }));
       setTasks(loaded);
-      setDoneMap(prev => {
-        const next = { ...prev };
-        loaded.forEach(t => { if (t.done && t.dateKey) next[`done:${t.id}:${t.dateKey}`] = true; });
-        return next;
-      });
     } catch (e) { console.error("Supabase読込失敗:", e.message); }
   }
 
@@ -485,37 +392,9 @@ function App(){
     return () => { clearInterval(iv); clearInterval(calIv); };
   }, []);
 
-  // ─── Push通知の許可リクエスト ─────────────────────────────────────────────
-  const handleRequestPush = async () => {
-    if (!("Notification" in window)) {
-      alert("このブラウザは通知に対応していません");
-      return;
-    }
-    setPushStatus("requesting");
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
-      setPushStatus("granted");
-      await registerPushSubscription();
-      showToast("🔔 通知を有効にしました");
-    } else {
-      setPushStatus("denied");
-      showToast("通知が拒否されました");
-    }
-  };
-
-  // 起動時にすでに許可済みか確認
-  useEffect(() => {
-    if ("Notification" in window && Notification.permission === "granted") {
-      setPushStatus("granted");
-    } else if ("Notification" in window && Notification.permission === "denied") {
-      setPushStatus("denied");
-    }
-  }, []);
-
   const dayTasks = tasks.filter(t => taskMatchesDate(t, selectedDateKey));
   const getTaskDone = (task) => doneMap[getDoneKey(task.id, selectedDateKey)] ?? task.done;
   const setTaskDone = (task, val) => setDoneMap(p => ({...p, [getDoneKey(task.id, selectedDateKey)]: val}));
-
   const combinedTasks = [
     ...dayTasks.map(t => ({...t, done: getTaskDone(t)})),
     ...googleTasks,
@@ -542,16 +421,17 @@ function App(){
     }
   };
 
-  const handleTogglePin = (task) => {
-    if (task.isGoogle) return;
-    setTasks(p => p.map(t => t.id===task.id ? {...t,pinned:!t.pinned} : t));
-  };
+  const handleTogglePin = async (task) => {
+  if (task.isGoogle) return;
+  const newPinned = !task.pinned;
+  setTasks(p => p.map(t => t.id===task.id ? {...t,pinned:newPinned} : t));
+  await supabase.from("tasks").update({ pinned: newPinned }).eq("id", task.id);
+};
 
   const handleDelete = async (task) => {
     if (task.isGoogle) { alert("Googleカレンダーの予定はカレンダーアプリ側から削除してください"); return; }
     setTasks(p => p.filter(t => t.id !== task.id));
-    const { error } = await supabase.from("tasks").delete().eq("id", task.id);
-    console.log("削除結果:", error);
+    await supabase.from("tasks").delete().eq("id", task.id);
   };
 
   const handleSyncNow = () => { setIcalRaw(null); fetchGoogleCalendar(selectedDateKey); };
@@ -582,7 +462,6 @@ function App(){
         pinnedTasks={pinnedTasks} pinnedLater={pinnedLater} getCat={getCat}
         setTab={setTab} selectedDateKey={selectedDateKey} setSelectedDateKey={setSelectedDateKey}
       />
-
       {tab==="timeline" && (
         <TimelineView
           tasks={combinedTasks} now={isToday ? now : -1}
@@ -595,7 +474,7 @@ function App(){
       {tab==="later" && (
         <LaterView items={later} setLater={setLater} getCat={getCat}
           onPromote={item => {
-            setTasks(p=>[...p,{id:Date.now(),title:item.title,time:toTime(nowMin()+30),duration:30,categoryId:item.categoryId,done:false,pinned:false,dateKey:selectedDateKey,repeat:{type:"none",interval:1,end:{type:"none"}},note:""}]);
+            setTasks(p=>[...p,{id:Date.now(),title:item.title,time:toTime(nowMin()+30),duration:30,categoryId:item.categoryId,done:false,pinned:false,dateKey:selectedDateKey,repeat:{type:"none",interval:1,end:{type:"none"}},note:"",remindMinutes:null}]);
             setLater(p=>p.filter(x=>x.id!==item.id));
           }}
           onEdit={item=>setModal({type:"later",data:item})}
@@ -611,7 +490,6 @@ function App(){
           googleSyncStatus={googleSyncStatus} onSyncNow={handleSyncNow}
           onSyncSpreadsheet={handleSyncSpreadsheet}
           onEditCat={c=>setModal({type:"category",data:c})} onAddCat={()=>setModal({type:"category",data:null})}
-          pushStatus={pushStatus} onRequestPush={handleRequestPush}
         />
       )}
 
@@ -636,6 +514,7 @@ function App(){
             setTasks(newTasks);
             setModal(null);
             await saveTasksToSupabase(newTasks);
+            showToast();
           }}
         />
       )}
@@ -652,6 +531,7 @@ function App(){
               category_id: newItem.categoryId, note: newItem.note || "",
               pinned: newItem.pinned || false,
             }, { onConflict: "id" });
+            showToast();
           }}
         />
       )}
@@ -959,7 +839,7 @@ function TaskCard({task,isOverlapped,isActive,isPast,getCat,onToggleDone,onToggl
           {isActive&&<span style={{fontSize:10,color:task.isGoogle?ga:C.accent,background:task.isGoogle?`${ga}20`:C.accentDim,borderRadius:6,padding:"2px 6px",fontWeight:700}}>進行中</span>}
           {task.isGoogle&&<span style={{fontSize:10,color:ga,display:"flex",alignItems:"center",gap:2}}><Icon name="calendar" size={10} color={ga}/>Google</span>}
           {task.dateKey&&!task.isGoogle&&<span style={{fontSize:10,color:C.amber,background:C.amberDim,borderRadius:6,padding:"2px 5px"}}>日付指定</span>}
-          {task.remindMinutes!=null&&!task.isGoogle&&<span style={{fontSize:10,color:C.green,background:C.greenDim,borderRadius:6,padding:"2px 5px"}}>🔔{task.remindMinutes}分前</span>}
+          {task.remindMinutes!=null&&!task.isGoogle&&<span style={{fontSize:10,color:C.green,background:C.greenDim,borderRadius:6,padding:"2px 5px"}}>🔔{task.remindMinutes===0?"開始時":`${task.remindMinutes}分前`}</span>}
         </div>
       </div>
       {open&&(
@@ -1054,12 +934,9 @@ function StatsView({tasks,categories}){
 }
 
 // ─── SETTINGS VIEW ────────────────────────────────────────────────────────────
-function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold,setFreeThreshold,categories,setCategories,themeId,setThemeId,googleSyncStatus,onSyncNow,onSyncSpreadsheet,onEditCat,onAddCat,pushStatus,onRequestPush}){
+function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold,setFreeThreshold,categories,setCategories,themeId,setThemeId,googleSyncStatus,onSyncNow,onSyncSpreadsheet,onEditCat,onAddCat}){
   const statusLabel={idle:"未同期",loading:"同期中…",ok:"同期済み ✓",error:"失敗 ⚠️"}[googleSyncStatus]||"";
   const statusColor={idle:C.textSub,loading:C.amber,ok:C.green,error:C.red}[googleSyncStatus]||C.textSub;
-
-  const pushLabel = {idle:"未設定",requesting:"確認中…",granted:"有効 ✓",denied:"拒否済み"}[pushStatus]||"";
-  const pushColor = {idle:C.textSub,requesting:C.amber,granted:C.green,denied:C.red}[pushStatus]||C.textSub;
 
   return(
     <div style={{padding:16}}>
@@ -1103,29 +980,16 @@ function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold
         </button>
       </SG>
       <SG title="データ管理">
-        {/* Push通知 */}
-        <div style={{padding:"10px 12px",borderRadius:10,background:C.greenDim,border:`1px solid ${C.green}44`,marginBottom:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-            <div style={{fontSize:12,fontWeight:700,color:C.green,display:"flex",alignItems:"center",gap:5}}><Icon name="bell" size={13} color={C.green}/>プッシュ通知</div>
-            <span style={{fontSize:11,color:pushColor,fontWeight:600}}>{pushLabel}</span>
+        <div style={{padding:"10px 12px",borderRadius:10,background:"#5865F222",border:"1px solid #5865F244",marginBottom:10}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#5865F2",marginBottom:2,display:"flex",alignItems:"center",gap:5}}>
+            <Icon name="bell" size={13} color="#5865F2"/>Discord通知
           </div>
-          <div style={{fontSize:11,color:C.textSub,lineHeight:1.5,marginBottom:8}}>アプリを閉じていてもタスクの開始時刻に通知が届きます。</div>
-          
-          {/* 💡 テスト送信ボタン（常に表示するか、許可済みの時だけ出す場合は条件を変えられますが、テスト用に常に出るようにしています） */}
-          <button onClick={sendTestNotification} style={{fontSize:11,color:"#fff",background:C.green,border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontWeight:600,marginBottom: pushStatus !== "granted" ? 10 : 0}}>
-            🚀 テスト通知を送信
-          </button>
-          
-          {pushStatus !== "granted" && pushStatus !== "denied" && (
-            <button onClick={onRequestPush} style={{fontSize:11,color:C.green,background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:8,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontWeight:600}}>
-              <Icon name="bell" size={12} color={C.green}/>通知を許可する
-            </button>
-          )}
-          {pushStatus === "denied" && (
-            <div style={{fontSize:11,color:C.red}}>通知が拒否されています。端末の設定から許可してください。</div>
-          )}
+          <div style={{fontSize:11,color:C.textSub,lineHeight:1.6}}>
+            タスクに設定した通知タイミングで、Discordにメッセージが届きます。<br/>
+            通知はCloudflare Workerが毎分自動で確認・送信します。<br/>
+            アプリを閉じていても通知されます。
+          </div>
         </div>
-        {/* Googleカレンダー同期 */}
         <div style={{padding:"10px 12px",borderRadius:10,background:"#4285F422",border:"1px solid #4285F444",marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
             <div style={{fontSize:12,fontWeight:700,color:"#4285F4"}}>🗓️ Googleカレンダー同期</div>
@@ -1182,7 +1046,7 @@ function Pill({label,active,color,bg,onClick}){return<button onClick={onClick} s
 
 function TaskModal({initial,categories,selectedDateKey,onClose,onSave}){
   const visibleCats=categories.filter(c=>c.id!=="google");
-  const def={title:"",time:toTime(nowMin()+30),duration:30,categoryId:visibleCats[0]?.id||"other",done:false,pinned:false,dateKey:null,note:"",remindMinutes:10,repeat:{type:"none",interval:1,days:[],end:{type:"none"}}};
+  const def={title:"",time:toTime(nowMin()+30),duration:30,categoryId:visibleCats[0]?.id||"other",done:false,pinned:false,dateKey:null,note:"",remindMinutes:null,repeat:{type:"none",interval:1,days:[],end:{type:"none"}}};
   const [f,setF]=useState(initial?{...def,...initial}:def);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const setR=(k,v)=>setF(p=>({...p,repeat:{...p.repeat,[k]:v}}));
@@ -1228,13 +1092,21 @@ function TaskModal({initial,categories,selectedDateKey,onClose,onSave}){
         )}
       </Field>
       <Field label="メモ（任意）"><input value={f.note} onChange={e=>set("note",e.target.value)} placeholder="補足など" style={inputSt()}/></Field>
-      <Field label="📣 リマインド通知">
-        <div style={{fontSize:11,color:C.textSub,marginBottom:8}}>タスク開始の何分前にLINEで通知しますか？</div>
+      <Field label="🔔 Discord通知タイミング">
+        <div style={{fontSize:11,color:C.textSub,marginBottom:8}}>タスクの何分前にDiscordへ通知しますか？</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {[{v:null,l:"なし"},{v:5,l:"5分前"},{v:10,l:"10分前"},{v:15,l:"15分前"},{v:30,l:"30分前"},{v:-1,l:"カスタム"}].map(o=>{
+          {[
+            {v:null, l:"なし"},
+            {v:0,    l:"開始時"},
+            {v:5,    l:"5分前"},
+            {v:10,   l:"10分前"},
+            {v:15,   l:"15分前"},
+            {v:30,   l:"30分前"},
+            {v:-1,   l:"カスタム"},
+          ].map(o=>{
             const isCustom = o.v === -1;
             const active = isCustom
-              ? (f.remindMinutes != null && ![null,5,10,15,30].includes(f.remindMinutes))
+              ? (f.remindMinutes != null && ![null,0,5,10,15,30].includes(f.remindMinutes))
               : f.remindMinutes === o.v;
             return(
               <Pill key={String(o.v)} label={o.l} active={active} color={C.accent} bg={C.accentDim}
@@ -1242,7 +1114,7 @@ function TaskModal({initial,categories,selectedDateKey,onClose,onSave}){
             );
           })}
         </div>
-        {f.remindMinutes != null && ![null,5,10,15,30].includes(f.remindMinutes) && (
+        {f.remindMinutes != null && ![null,0,5,10,15,30].includes(f.remindMinutes) && (
           <div style={{display:"flex",alignItems:"center",gap:10,marginTop:8}}>
             <input type="number" min={1} max={120} value={f.remindMinutes}
               onChange={e=>set("remindMinutes",Number(e.target.value))}

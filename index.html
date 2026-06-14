@@ -473,10 +473,15 @@ function App(){
       )}
       {tab==="later" && (
         <LaterView items={later} setLater={setLater} getCat={getCat}
-          onPromote={item => {
-            setTasks(p=>[...p,{id:Date.now(),title:item.title,time:toTime(nowMin()+30),duration:30,categoryId:item.categoryId,done:false,pinned:false,dateKey:selectedDateKey,repeat:{type:"none",interval:1,end:{type:"none"}},note:"",remindMinutes:null}]);
-            setLater(p=>p.filter(x=>x.id!==item.id));
-          }}
+        onPromote={async item => {
+  const newTask = {id:Date.now(),title:item.title,time:toTime(nowMin()+30),duration:30,categoryId:item.categoryId,done:false,pinned:false,dateKey:selectedDateKey,repeat:{type:"none",interval:1,end:{type:"none"}},note:"",remindMinutes:null};
+  const newTasks = [...tasks, newTask];
+  setTasks(newTasks);
+  setLater(p=>p.filter(x=>x.id!==item.id));
+  setTab("timeline");
+  await supabase.from("later").delete().eq("id", item.id);
+  await saveTasksToSupabase(newTasks);
+}}  
           onEdit={item=>setModal({type:"later",data:item})}
         />
       )}

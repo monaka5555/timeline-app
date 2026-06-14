@@ -1,289 +1,186 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="タイムライン">
-<title>タイムライン</title>
-<style>
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { margin: 0; padding: 0; font-family: -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif; }
-  input[type=range] { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; }
-  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; cursor: pointer; }
-  ::-webkit-scrollbar { display: none; }
-  * { scrollbar-width: none; }
-  .save-toast { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 8px 18px; border-radius: 20px; font-size: 12px; z-index: 9999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
-  .save-toast.show { opacity: 1; }
-  input, select, textarea { font-size: 16px !important; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Any Planner Style Scheduler</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    /* スクロールバーの非表示（iOS/Androidアプリ風のスッキリした見た目にするため） */
+    ::-webkit-scrollbar { display: none; }
+    body { -webkit-tap-highlight-color: transparent; }
+  </style>
 </head>
 <body>
+
 <div id="root"></div>
-<div class="save-toast" id="toast">💾 保存しました</div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script type="text/babel">
+
+<script type="text/javascript">
 const { useState, useEffect, useRef, useCallback } = React;
 
-// ─── STORAGE ──────────────────────────────────────────────────────────────────
-const STORAGE_KEY = "timeline_app_v2";
-function loadData() { try { const r=localStorage.getItem(STORAGE_KEY); return r?JSON.parse(r):null; } catch{return null;} }
-function saveData(data) { try { localStorage.setItem(STORAGE_KEY,JSON.stringify(data)); } catch{} }
-function showToast(msg) { const el=document.getElementById("toast"); if(!el)return; if(msg)el.textContent=msg; else el.textContent="💾 保存しました"; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),1800); }
+// ─── SUPABASE SETTINGS ────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://your-supabase-url.supabase.co"; // 実際のURLに置き換えてください
+const SUPABASE_KEY = "your-anon-key";                         // 実際のキーに置き換えてください
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ─── DATE HELPERS ─────────────────────────────────────────────────────────────
-function dateToKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-function keyToDate(k) { const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
-function todayKey() { return dateToKey(new Date()); }
-function addDays(d,n) { const r=new Date(d); r.setDate(r.getDate()+n); return r; }
+// ─── CONSTANTS & UTILS ────────────────────────────────────────────────────────
+const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
-// ─── THEMES ───────────────────────────────────────────────────────────────────
+const DEFAULT_CATEGORIES = [
+  { id: "work", name: "仕事", color: "#b85c4a", bg: "#b85c4a15" },
+  { id: "private", name: "プライベート", color: "#5a7a9a", bg: "#5a7a9a15" },
+  { id: "study", name: "勉強", color: "#7a9e8a", bg: "#7a9e8a15" },
+  { id: "other", name: "その他", color: "#94a3b8", bg: "#94a3b815" },
+  { id: "google", name: "Google", color: "#4285F4", bg: "#4285F415" }
+];
+
+const DEFAULT_LATER = [];
+
 const THEMES = [
-  { id:"craft", name:"和紙", emoji:"🌾", desc:"温かみのあるベージュ×ゴールド", dark:false,
-    bg:"#f3e8d6", surface:"#ede0c8", surface2:"#e8d8b8", border:"#d6c9b0", borderStrong:"#c4b49a",
-    accent:"#d0a727", accentDim:"#d0a72726", accentGlow:"#d0a72748",
-    green:"#667572", greenDim:"#66757224", amber:"#c49020", amberDim:"#c4902024",
-    red:"#b85c4a", redDim:"#b85c4a24", pink:"#a1bad0", pinkDim:"#a1bad034",
-    text:"#2e2a22", textSub:"#667572", textFaint:"#c4b49a" },
-  { id:"midnight", name:"深夜", emoji:"🌙", desc:"深いネイビー×パープル", dark:true,
-    bg:"#0c0c14", surface:"#14141f", surface2:"#1c1c2a", border:"#242435", borderStrong:"#30304a",
-    accent:"#7c6aff", accentDim:"#7c6aff26", accentGlow:"#7c6aff48",
-    green:"#34d399", greenDim:"#34d39924", amber:"#f59e0b", amberDim:"#f59e0b24",
-    red:"#f87171", redDim:"#f8717124", pink:"#f472b6", pinkDim:"#f472b634",
-    text:"#e8e8f4", textSub:"#7878a0", textFaint:"#28283c" },
-  { id:"forest", name:"森", emoji:"🌿", desc:"深緑×モスグリーン", dark:true,
-    bg:"#0e1410", surface:"#161e18", surface2:"#1e2820", border:"#263028", borderStrong:"#324038",
-    accent:"#4ade80", accentDim:"#4ade8026", accentGlow:"#4ade8048",
-    green:"#86efac", greenDim:"#86efac24", amber:"#fbbf24", amberDim:"#fbbf2424",
-    red:"#f87171", redDim:"#f8717124", pink:"#a7f3d0", pinkDim:"#a7f3d034",
-    text:"#e8f4ec", textSub:"#6a9070", textFaint:"#243028" },
-  { id:"sage", name:"森のノート", emoji:"🌿", desc:"やさしいグリーン×ベージュ", dark:false,
-    bg:"#f4f1e8", surface:"#fcfaf5", surface2:"#eef2ea", border:"#d7ddd0", borderStrong:"#b8c2b0",
-    accent:"#7a9e7e", accentDim:"#7a9e7e26", accentGlow:"#7a9e7e48",
-    green:"#5e7565", greenDim:"#5e756524", amber:"#b89b5e", amberDim:"#b89b5e24",
-    red:"#b86b5d", redDim:"#b86b5d24", pink:"#aebec5", pinkDim:"#aebec534",
-    text:"#2d342d", textSub:"#667567", textFaint:"#b8c2b0" },
-  { id:"navy", name:"北欧ノート", emoji:"📓", desc:"クリーンなオフホワイト×ゴールド", dark:false,
-    bg:"#f6f4ef", surface:"#ffffff", surface2:"#edf0f3", border:"#d6dce2", borderStrong:"#b8c0ca",
-    accent:"#c9a227", accentDim:"#c9a22726", accentGlow:"#c9a22748",
-    green:"#55697f", greenDim:"#55697f24", amber:"#c9a227", amberDim:"#c9a22724",
-    red:"#b56a5c", redDim:"#b56a5c24", pink:"#a8b5c6", pinkDim:"#a8b5c634",
-    text:"#37475a", textSub:"#657487", textFaint:"#b8c0ca" },
+  { id: "craft", name: "Craft", emoji: "🪵", desc: "落ち着いた木目調とアースカラー", bg: "#f7f5f0", surface: "#ffffff", border: "#e4e1da", borderStrong: "#c2beb4", text: "#2c2a29", textSub: "#736e65", textFaint: "#bbb7ae", accent: "#8a6e3a", accentDim: "#8a6e3a12", accentGlow: "#8a6e3a25", green: "#4d6a55", greenDim: "#4d6a5512", amber: "#b08937", amberDim: "#b0893712", pink: "#b35c72", pinkDim: "#b35c7212", red: "#a64b42", redDim: "#a64b4212", dark: false },
+  { id: "dark", name: "Charcoal", emoji: "🐈‍⬛", desc: "目に優しい漆黒のダークモード", bg: "#121212", surface: "#1e1e1e", border: "#2d2d2d", borderStrong: "#404040", text: "#e3e3e3", textSub: "#888888", textFaint: "#444444", accent: "#bb86fc", accentDim: "#bb86fc15", accentGlow: "#bb86fc30", green: "#03dac6", greenDim: "#03dac615", amber: "#cf6679", amberDim: "#cf667915", pink: "#ff7597", pinkDim: "#ff759715", red: "#cf6679", redDim: "#cf667915", dark: true }
 ];
 let C = THEMES[0];
 
-// ─── ICONS ────────────────────────────────────────────────────────────────────
-function Icon({name,size=16,color,style:s={}}) {
-  const col=color||C.text;
-  const icons={
-    checkmark:<svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke={col} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-    plus:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke={col} strokeWidth="2" strokeLinecap="round"/></svg>,
-    pin:      <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M9.5 2.5l4 4-1.5 1.5-1-.5-3 3 .5 1.5-1.5 1.5-2-2L3 13l-.5-.5 2-2.5-2-2 1.5-1.5 1.5.5 3-3L8 3l1.5-.5z" stroke={col} strokeWidth="1.2" strokeLinejoin="round" fill={col} fillOpacity="0.15"/></svg>,
-    pinFill:  <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M9.5 2.5l4 4-1.5 1.5-1-.5-3 3 .5 1.5-1.5 1.5-2-2L3 13l-.5-.5 2-2.5-2-2 1.5-1.5 1.5.5 3-3L8 3l1.5-.5z" fill={col}/></svg>,
-    repeat:   <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0110.5-3.9M14 8a6 6 0 01-10.5 3.9" stroke={col} strokeWidth="1.5" strokeLinecap="round"/><path d="M12 2.5l1.5 1.5L12 5.5M4 10.5l-1.5 1.5L4 13.5" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-    edit:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M11 2l3 3-8 8H3v-3l8-8z" stroke={col} strokeWidth="1.5" strokeLinejoin="round"/></svg>,
-    trash:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M3 5h10M6 5V3h4v2M5 5l1 8h4l1-8" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-    sun:      <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke={col} strokeWidth="1.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
-    moon:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M13 9.5A6 6 0 016.5 3c0-.4.03-.8.1-1.2A6.5 6.5 0 1014.2 9.4c-.4.07-.8.1-1.2.1z" stroke={col} strokeWidth="1.5" strokeLinejoin="round"/></svg>,
-    clock:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke={col} strokeWidth="1.5"/><path d="M8 5v3l2 2" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-    calendar: <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="2" stroke={col} strokeWidth="1.5"/><path d="M2 7h12M5 2v2M11 2v2" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
-    gear:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.5" stroke={col} strokeWidth="1.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
-    chart:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M2 12l3-4 3 2 3-5 3 3" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M2 14h12" stroke={col} strokeWidth="1.2" strokeLinecap="round"/></svg>,
-    later:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke={col} strokeWidth="1.5"/><path d="M8 5v3l2 2" stroke={col} strokeWidth="1.5" strokeLinecap="round"/><path d="M11 12l1.5 2" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
-    today:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="2" stroke={col} strokeWidth="1.5"/><path d="M2 7h12M5 2v2M11 2v2" stroke={col} strokeWidth="1.5" strokeLinecap="round"/><circle cx="8" cy="10" r="1.5" fill={col}/></svg>,
-    promote:  <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M8 12V4M4 8l4-4 4 4" stroke={col} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-    sync:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0110.5-3.9M14 8a6 6 0 01-10.5 3.9" stroke={col} strokeWidth="1.5" strokeLinecap="round"/><path d="M12 2.5l1.5 1.5L12 5.5M4 10.5l-1.5 1.5L4 13.5" stroke={col} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-    chevL:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M10 4l-4 4 4 4" stroke={col} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-    chevR:    <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke={col} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-    home:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M2 7l6-5 6 5v7H10v-4H6v4H2V7z" stroke={col} strokeWidth="1.5" strokeLinejoin="round"/></svg>,
-    bell:     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 014 4v3l1 1.5H3L4 9V6a4 4 0 014-4z" stroke={col} strokeWidth="1.5" strokeLinejoin="round"/><path d="M6.5 12.5a1.5 1.5 0 003 0" stroke={col} strokeWidth="1.5" strokeLinecap="round"/></svg>,
-  };
-  return <span style={{display:"inline-flex",alignItems:"center",...s}}>{icons[name]||null}</span>;
+function nowMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+function todayKey() { return dateToKey(new Date()); }
+function dateToKey(date) {
+  const y = date.getFullYear(), m = String(date.getMonth() + 1).padStart(2, "0"), d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
+function keyToDate(key) { const [y, m, d] = key.split("-").map(Number); return new Date(y, m - 1, d); }
+function addDays(date, days) { const d = new Date(date); d.setDate(d.getDate() + days); return d; }
+function toMin(tStr) { if (!tStr) return 0; const [h, m] = tStr.split(":").map(Number); return h * 60 + m; }
+function toTime(min) { const h = String(Math.floor(min / 60) % 24).padStart(2, "0"), m = String(min % 60).padStart(2, "0"); return `${h}:${m}`; }
+function fmtDur(min) { if (min >= 60) { const h = Math.floor(min / 60), m = min % 60; return m ? `${h}時間${m}分` : `${h}時間`; } return `${min}分`; }
+function getDoneKey(id, dateKey) { return `${id}_${dateKey}`; }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-function toMin(t){const[h,m]=t.split(":").map(Number);return h*60+m;}
-function toTime(m){return`${String(Math.floor(m/60)%24).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;}
-function nowMin(){const n=new Date();return n.getHours()*60+n.getMinutes();}
-function fmtDur(m){return m<60?`${m}分`:(m%60===0?`${m/60}時間`:`${Math.floor(m/60)}時間${m%60}分`);}
-function assignColumns(tasks){
-  const sorted=[...tasks].sort((a,b)=>toMin(a.time)-toMin(b.time));
-  const result=sorted.map(t=>({...t,col:0,totalCols:1}));
-  for(let i=0;i<result.length;i++){
-    const a=result[i],aEnd=toMin(a.time)+a.duration,ov=[a];
-    for(let j=i+1;j<result.length;j++){if(toMin(result[j].time)<aEnd)ov.push(result[j]);}
-    if(ov.length>1)ov.forEach((t,idx)=>{t.col=idx;t.totalCols=ov.length;});
-  }
-  return result;
-}
-const WEEKDAY_LABELS=["日","月","火","水","木","金","土"];
-function repeatLabel(r){
-  if(!r||r.type==="none")return null;
-  if(r.type==="daily")return r.interval===1?"毎日":`${r.interval}日おき`;
-  if(r.type==="weekday")return"平日";
-  if(r.type==="weekly"){const d=r.days?.length?r.days.map(x=>WEEKDAY_LABELS[x]).join(""):"";return r.interval===1?`毎週${d}`:`${r.interval}週おき${d}`;}
-  if(r.type==="monthly")return r.interval===1?"毎月":`${r.interval}ヶ月ごと`;
-  if(r.type==="yearly")return r.interval===1?"毎年":`${r.interval}年おき`;
-  return"繰り返し";
-}
-function inputSt(){return{width:"100%",background:C.bg,border:`1px solid ${C.borderStrong}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:14,outline:"none",boxSizing:"border-box",colorScheme:C.dark?"dark":"light"};}
-
-// ─── SUPABASE ─────────────────────────────────────────────────────────────────
-const SUPABASE_URL = "https://urndyzmvxozbatfooszf.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVybmR5em12eG96YmF0Zm9vc3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0NTY1MjgsImV4cCI6MjA5NjAzMjUyOH0.ZBUI8HRLS3flGOzpv4VuVHoNi4ISXGOid1kv6lgnqVI";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-// ─── ICAL PARSER ──────────────────────────────────────────────────────────────
-function parseICal(icalText, targetDate) {
-  const lines = icalText.split(/\r?\n/);
-  const rawEvents = [];
-  let cur = null;
-  const tgt = targetDate || new Date();
-  const tgtStart = new Date(tgt); tgtStart.setHours(0,0,0,0);
-  const tgtEnd   = new Date(tgt); tgtEnd.setHours(23,59,59,999);
-  const tgtDow   = tgt.getDay();
-
-  const parseDateStr = (str) => {
-    if(!str)return null;
-    const clean=str.replace(/[^0-9T]/g,'');
-    if(clean.includes('T')){
-      const y=parseInt(clean.substring(0,4)),mo=parseInt(clean.substring(4,6))-1,
-            d=parseInt(clean.substring(6,8)),h=parseInt(clean.substring(9,11)),
-            mi=parseInt(clean.substring(11,13)),s=parseInt(clean.substring(13,15));
-      return str.endsWith('Z')?new Date(Date.UTC(y,mo,d,h,mi,s)):new Date(y,mo,d,h,mi,s);
-    } else {
-      const y=parseInt(clean.substring(0,4)),mo=parseInt(clean.substring(4,6))-1,d=parseInt(clean.substring(6,8));
-      return new Date(y,mo,d,0,0,0);
-    }
-  };
-  const BYDAY_MAP={SU:0,MO:1,TU:2,WE:3,TH:4,FR:5,SA:6};
-  const parseByDay=(str)=>str.split(',').map(s=>BYDAY_MAP[s.replace(/[^A-Z]/g,'')]).filter(n=>n!==undefined);
-
-  const getOccurrence = (ev) => {
-    const start=ev.startDate;
-    if(!start||!ev.rrule)return null;
-    if(start>tgtEnd)return null;
-    const r={};
-    ev.rrule.split(';').forEach(p=>{const[k,v]=p.split('=');r[k]=v;});
-    const freq=r.FREQ,interval=parseInt(r.INTERVAL||'1');
-    if(r.UNTIL){const until=parseDateStr(r.UNTIL);if(until&&tgt>until)return null;}
-    if(ev.exdates?.some(ex=>ex>=tgtStart&&ex<=tgtEnd))return null;
-    const startDay=new Date(start);startDay.setHours(0,0,0,0);
-    const diffDays=Math.round((tgtStart-startDay)/86400000);
-    if(diffDays<0)return null;
-    let matches=false;
-    if(freq==='DAILY'){matches=diffDays%interval===0;}
-    else if(freq==='WEEKLY'){
-      const byDay=r.BYDAY?parseByDay(r.BYDAY):[start.getDay()];
-      matches=byDay.includes(tgtDow)&&Math.floor(diffDays/7)%interval===0;
-    } else if(freq==='MONTHLY'){
-      const ms=(tgt.getFullYear()-start.getFullYear())*12+(tgt.getMonth()-start.getMonth());
-      matches=tgt.getDate()===start.getDate()&&ms%interval===0;
-    } else if(freq==='YEARLY'){
-      matches=tgt.getMonth()===start.getMonth()&&tgt.getDate()===start.getDate()&&(tgt.getFullYear()-start.getFullYear())%interval===0;
-    }
-    if(!matches)return null;
-    const occ=new Date(tgt);
-    occ.setHours(start.getHours(),start.getMinutes(),start.getSeconds(),0);
-    return occ;
-  };
-
-  for(let i=0;i<lines.length;i++){
-    let line=lines[i];
-    while(i+1<lines.length&&(lines[i+1].startsWith(' ')||lines[i+1].startsWith('\t'))){line+=lines[++i].substring(1);}
-    line=line.trim();
-    if(line==='BEGIN:VEVENT'){cur={exdates:[]};}
-    else if(line==='END:VEVENT'){if(cur?.title&&cur.startDate)rawEvents.push(cur);cur=null;}
-    else if(cur){
-      if(line.startsWith('SUMMARY:'))cur.title=line.replace('SUMMARY:','').trim();
-      else if(line.startsWith('DTSTART')){const v=line.split(':').slice(1).join(':');cur.startDate=parseDateStr(v);cur.isAllDay=line.includes('VALUE=DATE')&&!v.includes('T');}
-      else if(line.startsWith('DTEND'))cur.endDate=parseDateStr(line.split(':').slice(1).join(':'));
-      else if(line.startsWith('RRULE:'))cur.rrule=line.replace('RRULE:','').trim();
-      else if(line.startsWith('EXDATE')){const ex=parseDateStr(line.split(':').slice(1).join(':'));if(ex)cur.exdates.push(ex);}
-    }
-  }
-
-  const results=[];
-  for(const ev of rawEvents){
-    const start=ev.startDate;
-    const duration=ev.endDate?Math.max(1,Math.round((ev.endDate-start)/60000)):(ev.isAllDay?60:30);
-    let occDate=null;
-    if(!ev.rrule){if(start>=tgtStart&&start<=tgtEnd)occDate=start;}
-    else{occDate=getOccurrence(ev);}
-    if(occDate){
-      results.push({
-        id:`google-${Date.now()}-${results.length}`,
-        title:ev.title,
-        time:`${String(occDate.getHours()).padStart(2,'0')}:${String(occDate.getMinutes()).padStart(2,'0')}`,
-        duration:ev.isAllDay?60:duration,
-        categoryId:"google",done:false,pinned:false,isGoogle:true,
-        note:ev.rrule?"Googleカレンダーから同期 (繰り返し)":ev.isAllDay?"Googleカレンダーから同期 (終日)":"Googleカレンダーから同期"
-      });
-    }
-  }
-  return results;
-}
-
-// ─── DEFAULT DATA ─────────────────────────────────────────────────────────────
-const DEFAULT_CATEGORIES=[
-  {id:"work",  name:"仕事",    color:"#5a7a9a",bg:"#5a7a9a22"},
-  {id:"child", name:"育児",    color:"#667572",bg:"#66757222"},
-  {id:"house", name:"家事",    color:"#d0a727",bg:"#d0a72722"},
-  {id:"self",  name:"自分時間",color:"#a1bad0",bg:"#a1bad030"},
-  {id:"health",name:"健康",    color:"#8a6e3a",bg:"#8a6e3a22"},
-  {id:"other", name:"その他",  color:"#9aaba8",bg:"#9aaba822"},
-  {id:"google",name:"🗓️ Google",color:"#4285F4",bg:"#4285F422"},
-];
-const DEFAULT_TASKS=[
-  {id:1,title:"起床・朝のルーティン",time:"07:00",duration:30,categoryId:"health",done:false,pinned:true, dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
-  {id:2,title:"子どもたちの朝支度",  time:"07:30",duration:45,categoryId:"child", done:false,pinned:false,dateKey:null,repeat:{type:"weekday",interval:1,end:{type:"none"}},note:"",remindMinutes:null},
-  {id:3,title:"服薬・身支度",        time:"08:05",duration:15,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
-  {id:4,title:"朝の家事",            time:"08:10",duration:80,categoryId:"house", done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
-  {id:5,title:"通院・外出準備",      time:"09:10",duration:50,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"none",   interval:1,end:{type:"none"}},note:"",remindMinutes:null},
-  {id:6,title:"カウンセリング",      time:"11:30",duration:60,categoryId:"health",done:false,pinned:false,dateKey:null,repeat:{type:"weekly", interval:1,days:[2],end:{type:"none"}},note:"",remindMinutes:null},
-  {id:7,title:"昼食・休憩",          time:"13:00",duration:45,categoryId:"self",  done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
-  {id:8,title:"夕飯づくり",          time:"17:30",duration:45,categoryId:"house", done:false,pinned:false,dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
-  {id:9,title:"就寝準備",            time:"22:30",duration:30,categoryId:"health",done:false,pinned:true, dateKey:null,repeat:{type:"daily",  interval:1,end:{type:"none"}},note:"",remindMinutes:null},
-];
-const DEFAULT_LATER=[
-  {id:101,title:"担任への家庭訪問メモ整理",    categoryId:"child", pinned:true},
-  {id:102,title:"次男の漢字練習プリント準備",  categoryId:"child", pinned:false},
-  {id:103,title:"通院時に話すテーマをまとめる",categoryId:"health",pinned:false},
-];
-
-// ─── タスクがその日に表示すべきか判定 ────────────────────────────────────────
 function taskMatchesDate(task, dateKey) {
-  const r = task.repeat;
-  if (task.dateKey) return task.dateKey === dateKey;
-  if (!r || r.type === "none") return dateKey === todayKey();
-
-  const tgt = keyToDate(dateKey);
-  const tgtDow = tgt.getDay();
-  const today = keyToDate(todayKey());
-
-  if (r.type === "daily") {
-    const diff = Math.round((tgt - today) / 86400000);
-    return diff >= 0 && diff % (r.interval||1) === 0;
+  if (task.dateKey === dateKey) return true;
+  if (!task.repeat || task.repeat.type === "none") return task.dateKey === dateKey;
+  const tDate = keyToDate(dateKey), sDate = task.dateKey ? keyToDate(task.dateKey) : null;
+  if (sDate && tDate < sDate) return false;
+  if (task.repeat.end?.type === "until" && task.repeat.end.until && dateKey > task.repeat.end.until) return false;
+  
+  // 簡易繰り返し判定
+  const diffTime = tDate.getTime() - (sDate ? sDate.getTime() : tDate.getTime());
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  const interval = task.repeat.interval || 1;
+  
+  switch (task.repeat.type) {
+    case "daily": return diffDays % interval === 0;
+    case "weekday": const dow = tDate.getDay(); return dow >= 1 && dow <= 5;
+    case "weekly": return tDate.getDay() === (sDate ? sDate.getDay() : 0);
+    default: return false;
   }
-  if (r.type === "weekday") return tgtDow >= 1 && tgtDow <= 5;
-  if (r.type === "weekly") {
-    const days = r.days?.length ? r.days : [today.getDay()];
-    if (!days.includes(tgtDow)) return false;
-    const diffW = Math.floor(Math.round((tgt - today) / 86400000) / 7);
-    return diffW >= 0 && diffW % (r.interval||1) === 0;
-  }
-  if (r.type === "monthly") return tgt.getDate() === today.getDate();
-  if (r.type === "yearly") return tgt.getDate() === today.getDate() && tgt.getMonth() === today.getMonth();
-  return false;
 }
 
-function getDoneKey(taskId, dateKey) { return `done:${taskId}:${dateKey}`; }
+function repeatLabel(r) {
+  if (!r || r.type === "none") return "";
+  return { daily: "毎日", weekday: "平日", weekly: "毎週", monthly: "毎月", yearly: "毎年" }[r.type] || "";
+}
 
-// ─── APP ──────────────────────────────────────────────────────────────────────
+// ─── OVERLAP ALGORITHM (Any Planner用の重なり検出) ───────────────────────────
+function assignColumns(sortedTasks) {
+  const result = [];
+  let currentGroup = [];
+  let groupMaxEnd = 0;
+
+  for (const t of sortedTasks) {
+    const start = toMin(t.time);
+    const end = start + (t.duration || 30);
+
+    if (currentGroup.length > 0 && start >= groupMaxEnd) {
+      // 直前のグループを確定させて並列カラム数を割り当て
+      assignColumnsToGroup(currentGroup);
+      currentGroup = [];
+      groupMaxEnd = 0;
+    }
+
+    currentGroup.push(t);
+    groupMaxEnd = Math.max(groupMaxEnd, end);
+  }
+  if (currentGroup.length > 0) {
+    assignColumnsToGroup(currentGroup);
+  }
+  return sortedTasks;
+}
+
+function assignColumnsToGroup(group) {
+  const columns = [];
+  for (const t of group) {
+    const start = toMin(t.time);
+    let colIndex = 0;
+    while (colIndex < columns.length && columns[colIndex] > start) {
+      colIndex++;
+    }
+    columns[colIndex] = start + (t.duration || 30);
+    t.colIndex = colIndex;
+  }
+  for (const t of group) {
+    t.colCount = columns.length;
+  }
+}
+
+// ─── LOCAL STORAGE BALANCER ──────────────────────────────────────────────────
+function loadData() { try { return JSON.parse(localStorage.getItem("any_planner_data")); } catch(e) { return null; } }
+function saveData(obj) { try { localStorage.setItem("any_planner_data", JSON.stringify(obj)); } catch(e) {} }
+function showToast(msg = "✓ 保存しました") { console.log(msg); }
+function inputSt() { return { width: "100%", padding: "10px 12px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 14, outline: "none", boxSizing: "border-box" }; }
+
+// ─── ICON COMPONENT ───────────────────────────────────────────────────────────
+function Icon({name, size=16, color="#000"}) {
+  return <span style={{display:"inline-block", width:size, height:size, fontSize:size, lineHeight:1, textAlign:"center", userSelect:"none"}}>{
+    { plus:"＋", gear:"⚙️", chart:"📊", today:"📅", later:"📥", edit:"✏️", trash:"🗑️", pin:"📌", pinFill:"📍", checkmark:"✓", clock:"🕒", repeat:"🔁", sync:"🔄", calendar:"🗓️", home:"🏠", chevL: "‹", chevR: "›", sun: "☀️", moon: "🌙", bell: "🔔" }[name] || "•"
+  }</span>;
+}
+
+// iCal パースパーサー (簡易実装版)
+function parseICal(text, targetDate) {
+  if (!text) return [];
+  const events = [];
+  const lines = text.split(/\r?\n/);
+  let cur = null;
+  const targetStr = dateToKey(targetDate).replace(/-/g, "");
+
+  for (let line of lines) {
+    if (line.startsWith("BEGIN:VEVENT")) cur = {};
+    else if (line.startsWith("END:VEVENT") && cur) {
+      if (cur.startStr && cur.startStr.startsWith(targetStr) && cur.summary) {
+        const timeStr = `${cur.startStr.substring(8,10)}:${cur.startStr.substring(10,12)}`;
+        const endMin = cur.endStr ? parseInt(cur.endStr.substring(8,10))*60 + parseInt(cur.endStr.substring(10,12)) : toMin(timeStr)+60;
+        const duration = endMin - toMin(timeStr);
+        events.push({
+          id: cur.uid || Math.random().toString(),
+          title: cur.summary,
+          time: timeStr,
+          duration: duration > 0 ? duration : 30,
+          categoryId: "google",
+          isGoogle: true,
+          done: false
+        });
+      }
+      cur = null;
+    } else if (cur && line.includes(":")) {
+      const idx = line.indexOf(":");
+      const key = line.substring(0, idx), val = line.substring(idx + 1);
+      if (key.startsWith("DTSTART")) cur.startStr = val;
+      else if (key.startsWith("DTEND")) cur.endStr = val;
+      else if (key === "SUMMARY") cur.summary = val;
+      else if (key === "UID") cur.uid = val;
+    }
+  }
+  return events;
+}
+
+// ─── APP COMPONENT ────────────────────────────────────────────────────────────
 function App(){
   const saved = loadData();
 
@@ -317,7 +214,7 @@ function App(){
         remindMinutes: row.remind_minutes ?? null,
       }));
       setTasks(loaded);
-    } catch (e) { console.error("Supabase読込失敗:", e.message); }
+    } catch (e) { console.error("Supabase読込失敗:", e?.message); }
   }
 
   async function loadCategoriesFromSupabase() {
@@ -422,11 +319,11 @@ function App(){
   };
 
   const handleTogglePin = async (task) => {
-  if (task.isGoogle) return;
-  const newPinned = !task.pinned;
-  setTasks(p => p.map(t => t.id===task.id ? {...t,pinned:newPinned} : t));
-  await supabase.from("tasks").update({ pinned: newPinned }).eq("id", task.id);
-};
+    if (task.isGoogle) return;
+    const newPinned = !task.pinned;
+    setTasks(p => p.map(t => t.id===task.id ? {...t,pinned:newPinned} : t));
+    await supabase.from("tasks").update({ pinned: newPinned }).eq("id", task.id);
+  };
 
   const handleDelete = async (task) => {
     if (task.isGoogle) { alert("Googleカレンダーの予定はカレンダーアプリ側から削除してください"); return; }
@@ -706,148 +603,259 @@ function CalendarModal({selectedDateKey,onClose,onSelect}){
   );
 }
 
-// ─── TIMELINE VIEW ────────────────────────────────────────────────────────────
+// ─── REVOLUTIONIZED TIMELINE VIEW (Any Planner 縦軸一体型スタイル) ─────────────
 function TimelineView({tasks,now,wakeTime,sleepTime,freeThreshold,getCat,googleSyncStatus,onSyncNow,onToggleDone,onTogglePin,onDelete,onEdit}){
-  const wakeMin=toMin(wakeTime),sleepMin=toMin(sleepTime);
-  const isToday=now>=0;
-  const pct=isToday?Math.max(0,Math.min(100,((now-wakeMin)/(sleepMin-wakeMin))*100)):0;
-  const nowRef=useRef(null);
-  useEffect(()=>{setTimeout(()=>nowRef.current?.scrollIntoView({behavior:"smooth",block:"center"}),200);},[]);
+  const isToday = now >= 0;
+  
+  // 描画倍率設定 (1分あたり何pxにするか)
+  const pxPerMin = 1.3;
+  const hourHeight = 60 * pxPerMin; // 1時間 = 78px
+  
+  // 0時から23時までの固定タイムラインを構築
+  const hours = Array.from({length: 24}, (_, i) => i);
+  
+  // タスクの重複重複検知・重なりカラム設定の適用
+  const sorted = [...tasks].sort((a,b) => toMin(a.time) - toMin(b.time));
+  const processedTasks = assignColumns(sorted);
 
-  const sorted=[...tasks].sort((a,b)=>toMin(a.time)-toMin(b.time));
-  const withCols=assignColumns(sorted);
-  const items=[];
-  let cursor=wakeMin,i=0;
-  while(i<withCols.length){
-    const t=withCols[i],tMin=toMin(t.time);
-    if(tMin-cursor>=freeThreshold)items.push({type:"free",start:cursor,end:tMin});
-    const group=[t];let maxEnd=tMin+t.duration,j=i+1;
-    while(j<withCols.length&&toMin(withCols[j].time)<maxEnd){group.push(withCols[j]);maxEnd=Math.max(maxEnd,toMin(withCols[j].time)+withCols[j].duration);j++;}
-    items.push({type:"group",tasks:group,start:tMin,end:maxEnd});
-    cursor=maxEnd;i=j;
+  // 空き時間インジケーターの動的算出
+  const freeSlots = [];
+  let cursor = 0; // 0分(00:00)から追跡
+  for (const t of processedTasks) {
+    const tStart = toMin(t.time);
+    if (tStart - cursor >= freeThreshold) {
+      freeSlots.push({ start: cursor, end: tStart });
+    }
+    cursor = Math.max(cursor, tStart + (t.duration || 30));
   }
-  if(sleepMin-cursor>=freeThreshold)items.push({type:"free",start:cursor,end:sleepMin});
-  const googleCount=tasks.filter(t=>t.isGoogle).length;
+  if (1440 - cursor >= freeThreshold) {
+    freeSlots.push({ start: cursor, end: 1440 });
+  }
+
+  const nowRef = useRef(null);
+  useEffect(() => {
+    if (isToday) {
+      setTimeout(() => nowRef.current?.scrollIntoView({behavior:"smooth", block:"center"}), 300);
+    }
+  }, [isToday]);
+
+  const googleCount = tasks.filter(t => t.isGoogle).length;
 
   return(
     <div style={{padding:"0 0 20px"}}>
-      <div style={{padding:"6px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      {/* 同期ステータスヘッダー */}
+      <div style={{padding:"8px 16px 4px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:`1px solid ${C.border}55`}}>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           {googleSyncStatus==="loading"&&<span style={{fontSize:11,color:C.textSub,display:"flex",alignItems:"center",gap:4}}><Icon name="sync" size={11} color={C.textSub}/>同期中…</span>}
-          {googleSyncStatus==="ok"&&googleCount>0&&<span style={{fontSize:11,color:"#4285F4",display:"flex",alignItems:"center",gap:4}}><Icon name="calendar" size={11} color="#4285F4"/>🗓️ {googleCount}件</span>}
+          {googleSyncStatus==="ok"&&googleCount>0&&<span style={{fontSize:11,color:"#4285F4",display:"flex",alignItems:"center",gap:4}}><Icon name="calendar" size={11} color="#4285F4"/>🗓️ Google {googleCount}件</span>}
           {googleSyncStatus==="ok"&&googleCount===0&&<span style={{fontSize:11,color:C.textSub}}>Google予定なし</span>}
-          {googleSyncStatus==="error"&&<span style={{fontSize:11,color:C.red}}>⚠️ Google同期失敗</span>}
+          {googleSyncStatus==="error"&&<span style={{fontSize:11,color:C.red}}>⚠️ 同期失敗</span>}
         </div>
         <button onClick={onSyncNow} style={{fontSize:10,color:C.textSub,background:"transparent",border:`1px solid ${C.border}`,borderRadius:8,padding:"2px 8px",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
-          <Icon name="sync" size={10} color={C.textSub}/>更新
+          <Icon name="sync" size={10} color={C.textSub}/>同期
         </button>
       </div>
-      {isToday&&(
-        <div style={{padding:"10px 16px 8px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.textSub,marginBottom:5}}>
-            <span style={{display:"flex",alignItems:"center",gap:4}}><Icon name="sun" size={13} color={C.amber}/>{wakeTime}</span>
-            <span style={{color:C.accent,fontWeight:700,fontSize:12}}>{toTime(now)}</span>
-            <span style={{display:"flex",alignItems:"center",gap:4}}>{sleepTime}<Icon name="moon" size={13} color={C.textSub}/></span>
+
+      {/* 24時間 バーティカル時間軸タイムライン */}
+      <div style={{position: "relative", width: "100%", height: 24 * hourHeight, marginTop: 10, boxSizing: "border-box"}}>
+        
+        {/* 背景：時間区切りライングリッド */}
+        {hours.map(h => (
+          <div key={h} style={{
+            position: "absolute",
+            top: h * hourHeight,
+            left: 0,
+            width: "100%",
+            height: hourHeight,
+            borderTop: `1px solid ${C.border}45`,
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "flex-start"
+          }}>
+            {/* 左側：時間テキスト軸領域 */}
+            <div style={{
+              width: 54,
+              fontSize: 11,
+              fontWeight: 700,
+              color: C.textSub,
+              textAlign: "right",
+              paddingRight: 8,
+              marginTop: -6,
+              fontFamily: "monospace",
+              letterSpacing: -0.2
+            }}>
+              {String(h).padStart(2, "0")}:00
+            </div>
+            {/* 右側：コンテンツ領域用縦境界線 */}
+            <div style={{
+              flex: 1,
+              height: "100%",
+              borderLeft: `1px solid ${C.border}88`
+            }} />
           </div>
-          <div style={{background:C.surface,borderRadius:8,height:5,overflow:"hidden"}}>
-            <div style={{width:`${pct}%`,height:"100%",borderRadius:8,background:`linear-gradient(90deg,${C.accent},${C.accent}bb)`,transition:"width 1s"}}/>
-          </div>
-        </div>
-      )}
-      <div style={{padding:"8px 16px 0"}}>
-        {items.length===0&&<div style={{textAlign:"center",padding:"60px 20px",color:C.textSub}}><Icon name="calendar" size={48} color={C.textSub}/><div style={{marginTop:12,fontSize:13}}>この日のタスクはありません<br/>＋ボタンで追加できます</div></div>}
-        {items.map((item,idx)=>{
-          if(item.type==="free"){
-            const isCurrent=isToday&&now>=item.start&&now<item.end;
-            return(<div key={idx} style={{marginBottom:8}}>{isCurrent&&<div ref={nowRef}/>}<FreeSlot start={item.start} end={item.end} isCurrent={isCurrent} now={now}/></div>);
-          }
-          const isNowG=isToday&&now>=item.start&&now<item.end;
-          return(
-            <div key={idx} style={{marginBottom:8}}>
-              {isNowG&&<div ref={nowRef}/>}
-              <div style={{fontSize:11,color:C.textSub,marginBottom:4,paddingLeft:2,display:"flex",alignItems:"center",gap:6}}>
-                <span style={{fontWeight:700,color:isNowG?C.accent:C.textSub}}>{toTime(item.start)}</span>
-                {isNowG&&<span style={{width:7,height:7,borderRadius:"50%",background:C.accent,display:"inline-block",boxShadow:`0 0 6px ${C.accent}`}}/>}
-              </div>
-              <div style={{display:"flex",gap:6}}>
-                {item.tasks.map(task=>(
-                  <TaskCard key={task.id} task={task} isOverlapped={item.tasks.length>1}
-                    isActive={isToday&&now>=toMin(task.time)&&now<toMin(task.time)+task.duration}
-                    isPast={isToday&&toMin(task.time)+task.duration<now}
-                    getCat={getCat}
-                    onToggleDone={()=>onToggleDone(task)}
-                    onTogglePin={()=>onTogglePin(task)}
-                    onDelete={()=>onDelete(task)}
-                    onEdit={()=>onEdit(task)}
-                  />
-                ))}
-              </div>
+        ))}
+
+        {/* タイムライン領域の空き時間レイヤー */}
+        {freeSlots.map((slot, idx) => {
+          const top = slot.start * pxPerMin;
+          const height = (slot.end - slot.start) * pxPerMin;
+          const isCurrent = isToday && now >= slot.start && now < slot.end;
+          return (
+            <div key={`free-${idx}`} style={{
+              position: "absolute",
+              top: top,
+              left: 64,
+              right: 16,
+              height: height - 2,
+              border: `1px dashed ${isCurrent ? C.accent + "88" : C.borderStrong + "55"}`,
+              borderRadius: 8,
+              background: isCurrent ? C.accentDim : "transparent",
+              padding: "2px 8px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              overflow: "hidden",
+              pointerEvents: "none"
+            }}>
+              <span style={{fontSize: 10, color: isCurrent ? C.accent : C.textSub, fontWeight: 600}}>
+                空き {fmtDur(slot.end - slot.start)} ({toTime(slot.start)}〜)
+              </span>
             </div>
           );
         })}
+
+        {/* タイムライン領域のタスクカード絶対配置プロット */}
+        {processedTasks.map(task => {
+          const startMin = toMin(task.time);
+          const top = startMin * pxPerMin;
+          const height = Math.max(26, (task.duration || 30) * pxPerMin); // 最低高さを確保して文字潰れ防止
+
+          // カラム分割計算 (重なりを綺麗に横並びにする)
+          const colCount = task.colCount || 1;
+          const colIndex = task.colIndex || 0;
+          const leftOffset = 60 + ((354 / colCount) * colIndex);
+          const blockWidth = (354 / colCount) - 4;
+
+          return (
+            <div key={task.id} style={{
+              position: "absolute",
+              top: top,
+              left: leftOffset,
+              width: blockWidth,
+              height: height - 2,
+              zIndex: 10,
+              boxSizing: "border-box"
+            }}>
+              <TaskCard
+                task={task}
+                isOverlapped={colCount > 1}
+                isActive={isToday && now >= startMin && now < startMin + (task.duration || 30)}
+                isPast={isToday && startMin + (task.duration || 30) < now}
+                getCat={getCat}
+                onToggleDone={onToggleDone}
+                onTogglePin={onTogglePin}
+                onDelete={onDelete}
+                onEdit={onEdit}
+                compactMode={height < 45}
+              />
+            </div>
+          );
+        })}
+
+        {/* リアルタイム現在時刻バー赤ラインインジケーター */}
+        {isToday && (
+          <div ref={nowRef} style={{
+            position: "absolute",
+            top: now * pxPerMin,
+            left: 0,
+            right: 0,
+            height: 2,
+            background: C.red,
+            zIndex: 40,
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "center"
+          }}>
+            <div style={{
+              background: C.red,
+              color: "#fff",
+              fontSize: 8,
+              fontWeight: 800,
+              padding: "1px 3px",
+              borderRadius: 4,
+              marginLeft: 4,
+              transform: "translateY(-0.5px)",
+              fontFamily: "monospace"
+            }}>
+              {toTime(now)}
+            </div>
+            <div style={{flex: 1, height: 1, borderTop: `1px dotted ${C.red}`}} />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function FreeSlot({start,end,isCurrent,now}){
-  const dur=end-start,pct=isCurrent?Math.min(100,((now-start)/dur)*100):0;
-  return(
-    <div style={{border:`1px dashed ${isCurrent?C.accent+"60":C.borderStrong}`,borderRadius:14,padding:"10px 14px",background:isCurrent?C.accentDim:"transparent",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-      <div>
-        <div style={{fontSize:11,color:isCurrent?C.accent:C.textSub,fontWeight:600}}>空き時間</div>
-        <div style={{fontSize:20,fontWeight:800,color:isCurrent?C.accent:C.textSub,letterSpacing:-0.5}}>{fmtDur(dur)}</div>
-        <div style={{fontSize:11,color:C.textSub}}>{toTime(start)} 〜 {toTime(end)}</div>
-      </div>
-      {isCurrent&&(
-        <div style={{width:40,height:40,borderRadius:"50%",border:`3px solid ${C.accentGlow}`,position:"relative",display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{fontSize:10,color:C.accent,fontWeight:700}}>{Math.round(pct)}%</div>
-          <svg style={{position:"absolute",inset:"-3px",width:46,height:46}} viewBox="0 0 46 46">
-            <circle cx="23" cy="23" r="20" fill="none" stroke={C.accent} strokeWidth="3" strokeDasharray={`${pct/100*125.7} 125.7`} strokeLinecap="round" transform="rotate(-90 23 23)" opacity="0.8"/>
-          </svg>
-        </div>
-      )}
-    </div>
-  );
-}
+// 空き時間カードはタイムライン一体化に伴いFreeSlotコンポーネントからタイムライン内インラインインジケーターへ統合されました。
 
-function TaskCard({task,isOverlapped,isActive,isPast,getCat,onToggleDone,onTogglePin,onDelete,onEdit}){
+function TaskCard({task,isOverlapped,isActive,isPast,getCat,onToggleDone,onTogglePin,onDelete,onEdit,compactMode}){
   const [open,setOpen]=useState(false);
   const cat=getCat(task.categoryId);
   const rep=task.isGoogle?null:repeatLabel(task.repeat);
   const ga="#4285F4";
-  const border=task.isGoogle?(isActive?`${ga}99`:`${ga}44`):(isActive?C.accent+"66":C.border);
-  const shadow=task.isGoogle?(isActive?`0 0 16px ${ga}44`:"none"):(isActive?`0 0 16px ${C.accentGlow}`:"none");
+  const border=task.isGoogle?(isActive?`${ga}99`:`${ga}44`):(isActive?C.accent+"66"+"" :C.border);
+  const shadow=task.isGoogle?(isActive?`0 0 12px ${ga}44`:"none"):(isActive?`0 0 12px ${C.accentGlow}`:"none");
+  
   return(
-    <div style={{flex:1,minWidth:0,borderRadius:14,overflow:"hidden",background:C.surface,border:`1px solid ${border}`,boxShadow:shadow,opacity:isPast&&task.done?0.45:1,transition:"all 0.2s"}}>
-      {task.isGoogle&&<div style={{height:3,background:`linear-gradient(90deg,${ga},${ga}88)`}}/>}
-      <div style={{padding:isOverlapped?"10px":"12px 14px",cursor:"pointer"}} onClick={()=>setOpen(o=>!o)}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-          <div style={{fontSize:12,fontWeight:700,color:isActive?(task.isGoogle?ga:C.accent):C.textSub,display:"flex",alignItems:"center",gap:4}}>
-            <Icon name="clock" size={11} color={isActive?(task.isGoogle?ga:C.accent):C.textSub}/>{task.time}
-            {!isOverlapped&&<span style={{fontWeight:400,color:C.textSub}}> ({fmtDur(task.duration)})</span>}
+    <div style={{width:"100%", height:"100%", borderRadius:8, overflow:"hidden", background:C.surface, border:`1px solid ${border}`, boxShadow:shadow, opacity:isPast&&task.done?0.5:1, transition:"all 0.2s", display:"flex", flexDirection:"column"}}>
+      {task.isGoogle&&<div style={{height:2, background:`linear-gradient(90deg,${ga},${ga}88)`}}/>}
+      
+      <div style={{padding: isOverlapped?"6px":"8px 10px", cursor:"pointer", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: compactMode ? "center" : "space-between"}} onClick={()=>setOpen(o=>!o)}>
+        
+        {/* 上段：時間・チェックボタン (超コンパクト時は非表示化させてタイトル優先) */}
+        {!compactMode && (
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:2}}>
+            <div style={{fontSize:10,fontWeight:700,color:isActive?(task.isGoogle?ga:C.accent):C.textSub,display:"flex",alignItems:"center",gap:2}}>
+              <Icon name="clock" size={10} color={isActive?(task.isGoogle?ga:C.accent):C.textSub}/>{task.time}
+            </div>
+            <button onClick={e=>{e.stopPropagation();onToggleDone();}} style={{width:16,height:16,borderRadius:"50%",border:`1.5px solid ${task.done?C.green:C.textFaint}`,background:task.done?C.green:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              {task.done&&<Icon name="checkmark" size={9} color="#000"/>}
+            </button>
           </div>
-          <button onClick={e=>{e.stopPropagation();onToggleDone();}} style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${task.done?C.green:C.textFaint}`,background:task.done?C.green:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            {task.done&&<Icon name="checkmark" size={11} color="#000"/>}
-          </button>
+        )}
+
+        {/* 中段：タイトル */}
+        <div style={{
+          fontSize: compactMode || isOverlapped ? 11 : 13,
+          fontWeight: 700,
+          color: task.done ? C.textSub : C.text,
+          textDecoration: task.done ? "line-through" : "none",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          lineHeight: 1.2
+        }}>
+          {task.title}
         </div>
-        <div style={{fontSize:isOverlapped?13:15,fontWeight:600,color:task.done?C.textSub:C.text,textDecoration:task.done?"line-through":"none",marginBottom:6,lineHeight:1.3}}>{task.title}</div>
-        <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
-          <span style={{fontSize:10,fontWeight:700,color:cat.color,background:cat.bg,borderRadius:6,padding:"2px 7px"}}>{cat.name}</span>
-          {rep&&<span style={{fontSize:10,color:C.textSub,display:"flex",alignItems:"center",gap:2}}><Icon name="repeat" size={10} color={C.textSub}/>{rep}</span>}
-          {task.pinned&&<Icon name="pinFill" size={12} color={C.pink}/>}
-          {isActive&&<span style={{fontSize:10,color:task.isGoogle?ga:C.accent,background:task.isGoogle?`${ga}20`:C.accentDim,borderRadius:6,padding:"2px 6px",fontWeight:700}}>進行中</span>}
-          {task.isGoogle&&<span style={{fontSize:10,color:ga,display:"flex",alignItems:"center",gap:2}}><Icon name="calendar" size={10} color={ga}/>Google</span>}
-          {task.dateKey&&!task.isGoogle&&<span style={{fontSize:10,color:C.amber,background:C.amberDim,borderRadius:6,padding:"2px 5px"}}>日付指定</span>}
-          {task.remindMinutes!=null&&!task.isGoogle&&<span style={{fontSize:10,color:C.green,background:C.greenDim,borderRadius:6,padding:"2px 5px"}}>🔔{task.remindMinutes===0?"開始時":`${task.remindMinutes}分前`}</span>}
-        </div>
+
+        {/* 下段：メタタグバッジ群 (超コンパクト時は非表示化) */}
+        {!compactMode && (
+          <div style={{display:"flex",alignItems:"center",gap:3,marginTop:2,overflow:"hidden",whiteSpace:"nowrap"}}>
+            <span style={{fontSize:8,fontWeight:700,color:cat.color,background:cat.bg,borderRadius:4,padding:"1px 4px"}}>{cat.name}</span>
+            {task.pinned&&<Icon name="pinFill" size={9} color={C.pink}/>}
+            {task.isGoogle&&<span style={{fontSize:8,color:ga}}><Icon name="calendar" size={8} color={ga}/></span>}
+          </div>
+        )}
       </div>
+
+      {/* タップ展開時の編集ドロップダウンアクションパネル */}
       {open&&(
-        <div style={{borderTop:`1px solid ${C.border}`,padding:"8px 10px",display:"flex",gap:6,flexWrap:"wrap"}}>
+        <div style={{borderTop:`1px solid ${C.border}`,padding:"4px",background:C.bg,display:"flex",gap:4,flexWrap:"wrap",zIndex:20,position:"absolute",left:0,right:0,top:"100%",boxShadow:`0 4px 12px #00000020`,borderRadius:8}}>
           {!task.isGoogle&&<Chip icon="edit" label="編集" color={C.accent} onClick={onEdit}/>}
           {!task.isGoogle&&<Chip icon={task.pinned?"pinFill":"pin"} label={task.pinned?"外す":"ピン"} color={C.pink} onClick={onTogglePin}/>}
           {!task.isGoogle&&<Chip icon="trash" label="削除" color={C.red} onClick={onDelete}/>}
-          {task.isGoogle&&<span style={{fontSize:11,color:C.textSub,padding:"4px 6px"}}>📅 Googleの予定は編集・削除できません</span>}
+          {task.isGoogle&&<span style={{fontSize:9,color:C.textSub,padding:"2px 4px"}}>📅 Googleカレンダー固定</span>}
         </div>
       )}
     </div>
@@ -855,7 +863,7 @@ function TaskCard({task,isOverlapped,isActive,isPast,getCat,onToggleDone,onToggl
 }
 
 function Chip({icon,label,color,onClick}){
-  return<button onClick={onClick} style={{display:"flex",alignItems:"center",gap:4,background:color+"22",border:`1px solid ${color}44`,color,borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}><Icon name={icon} size={12} color={color}/>{label}</button>;
+  return<button onClick={onClick} style={{display:"flex",alignItems:"center",gap:3,background:color+"22",border:`1px solid ${color}44`,color,borderRadius:6,padding:"3px 8px",fontSize:10,fontWeight:600,cursor:"pointer"}}><Icon name={icon} size={10} color={color}/>{label}</button>;
 }
 
 // ─── LATER VIEW ───────────────────────────────────────────────────────────────
@@ -955,7 +963,7 @@ function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold
           })}
         </div>
       </SG>
-      <SG title="起床・就寝">
+      <SG title="起床・就寝 (目安基準時間)">
         <div style={{display:"flex",gap:12}}>
           <div style={{flex:1}}><FL><Icon name="sun" size={12} color={C.amber}/> 起床</FL><input type="time" value={wakeTime} onChange={e=>setWakeTime(e.target.value)} style={inputSt()}/></div>
           <div style={{flex:1}}><FL><Icon name="moon" size={12} color={C.textSub}/> 就寝</FL><input type="time" value={sleepTime} onChange={e=>setSleepTime(e.target.value)} style={inputSt()}/></div>
@@ -1000,10 +1008,13 @@ function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold
             <Icon name="sync" size={12} color="#4285F4"/>今すぐ同期
           </button>
         </div>
-        <div style={{padding:"10px 12px",borderRadius:10,background:C.greenDim,border:`1px solid ${C.green}44`}}>
+        <div style={{padding:"10px 12px",borderRadius:10,background:C.greenDim,border:`1px solid ${C.green}44`, marginBottom:10}}>
           <div style={{fontSize:12,fontWeight:700,color:C.green,marginBottom:2}}>💾 自動保存オン</div>
           <div style={{fontSize:11,color:C.textSub,lineHeight:1.5}}>手動で追加したタスク・設定は自動でこの端末に保存されます。</div>
         </div>
+        <button onClick={onSyncSpreadsheet} style={{width:"100%",padding:11,borderRadius:10,fontSize:13,fontWeight:600,background:C.accentDim,border:`1px solid ${C.accent}44`,color:C.accent,cursor:"pointer"}}>
+          📤 Supabaseサーバーへ手動同期・バックアップ
+        </button>
       </SG>
     </div>
   );
@@ -1031,7 +1042,7 @@ function BottomNav({tab,setTab}){
 function BottomSheet({title,onClose,children}){
   return(
     <div style={{position:"fixed",inset:0,background:"#00000080",zIndex:200,display:"flex",alignItems:"flex-end"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{background:C.surface,borderRadius:"22px 22px 0 0",padding:"22px 18px",width:"100%",maxHeight:"92vh",overflowY:"auto",boxSizing:"border-box"}}>
+      <div style={{background:C.surface,borderRadius:"22px 22px 0 0",padding:"22px 18px",width:"100%",maxWidth:430,margin:"0 auto",maxHeight:"92vh",overflowY:"auto",boxSizing:"border-box"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
           <div style={{fontSize:17,fontWeight:800}}>{title}</div>
           <button onClick={onClose} style={{background:C.border,border:"none",borderRadius:"50%",width:28,height:28,color:C.text,cursor:"pointer",fontSize:14}}>✕</button>
@@ -1068,7 +1079,7 @@ function TaskModal({initial,categories,selectedDateKey,onClose,onSave}){
         {isDateSpecific && (
           <div style={{marginBottom:8}}>
             <FL>表示する日付</FL>
-            <input type="date" value={f.dateKey||selectedDateKey} onChange={e=>set("dateKey",e.target.value)} style={inputSt()}/>
+            <input type="date" value={f.dateKey||selectedDateKey} onChange={e=>set("dateKey",e.target.value)} style={inputSt()} />
           </div>
         )}
         {!isDateSpecific&&(

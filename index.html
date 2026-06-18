@@ -279,6 +279,57 @@ function taskMatchesDate(task, dateKey) {
 
 function getDoneKey(taskId, dateKey) { return `done:${taskId}:${dateKey}`; }
 
+// ─── 玉突き移動ロジック（タイムラインドラッグ移動用）────────────────────────
+// movedTaskId: ドラッグしたタスクのID, newStartMin: ドラッグ確定後の新しい開始分
+// tasks: その日に表示されているSupabaseタスクのみ（Googleタスクは除外して渡す）
+// 戻り値: 同じ件数のタスク配列（time, idのみ更新対象。他のプロパティは保持）
+function cascadeMove(tasks, movedTaskId, newStartMin) {
+  newStartMin = Math.round(newStartMin / 5) * 5;
+  newStartMin = Math.max(0, Math.min(1439, newStartMin));
+
+  const result = tasks.map(t => ({...t, startMin: toMin(t.time), endMin: toMin(t.time) + (t.duration||30)}));
+  const movedTask = result.find(t => t.id === movedTaskId);
+  if (!movedTask) return tasks;
+
+  movedTask.startMin = newStartMin;
+  movedTask.endMin = newStartMin + (movedTask.duration || 30);
+
+  const others = result.filter(t => t.id !== movedTaskId).sort((a,b) => a.startMin - b.startMin);
+  let combined = [...others, movedTask];
+  combined.sort((a,b) => a.startMin - b.startMin || (a.id===movedTaskId?-1:1));
+
+  // 前方への玉突き：前のタスクと重なっていたら押し出す
+  for (let i = 1; i < combined.length; i++) {
+    const prev = combined[i-1];
+    const cur = combined[i];
+    if (cur.startMin < prev.endMin) {
+      const shift = prev.endMin - cur.startMin;
+      cur.startMin += shift;
+      cur.endMin += shift;
+    }
+  }
+  // 末尾が23:59(1439分)を超えていたら、超えた分だけ後ろから手前へ詰める（重なる範囲のみ連鎖）
+  if (combined.length > 0 && combined[combined.length-1].endMin > 1439) {
+    for (let i = combined.length - 1; i >= 0; i--) {
+      if (i === combined.length - 1) {
+        const overflow = combined[i].endMin - 1439;
+        if (overflow > 0) {
+          combined[i].endMin -= overflow;
+          combined[i].startMin -= overflow;
+        }
+      } else {
+        if (combined[i].endMin > combined[i+1].startMin) {
+          const overflow = combined[i].endMin - combined[i+1].startMin;
+          combined[i].endMin -= overflow;
+          combined[i].startMin -= overflow;
+        }
+      }
+    }
+  }
+
+  return combined.map(t => ({ id: t.id, time: toTime(t.startMin) }));
+}
+
 // ─── APP ──────────────────────────────────────────────────────────────────────
 function App(){
   const saved = loadData();
@@ -432,6 +483,20 @@ function App(){
 
   const handleSyncNow = () => { setIcalRaw(null); fetchGoogleCalendar(selectedDateKey); };
 
+  // [追加] タイムライン上のドラッグ移動確定時の処理（玉突き＋Supabase保存）
+  const handleTaskTimeChange = async (movedTaskId, newStartMin) => {
+    // 対象日のSupabaseタスクのみ（Googleタスクは対象外）
+    const targetTasks = tasks.filter(t => !t.isGoogle && taskMatchesDate(t, selectedDateKey));
+    const updates = cascadeMove(targetTasks, movedTaskId, newStartMin);
+    const updateMap = new Map(updates.map(u => [u.id, u.time]));
+    const newTasks = tasks.map(t => updateMap.has(t.id) ? {...t, time: updateMap.get(t.id)} : t);
+    setTasks(newTasks);
+    // 変更があったタスクだけSupabaseへ反映
+    for (const u of updates) {
+      await supabase.from("tasks").update({ time: u.time }).eq("id", u.id);
+    }
+  };
+
   async function saveTasksToSupabase(taskList) {
     const rows = taskList.filter(t => !t.isGoogle).map(t => ({
       id: t.id, date_key: t.dateKey || null, title: t.title, time: t.time,
@@ -465,6 +530,7 @@ function App(){
           getCat={getCat} googleSyncStatus={googleSyncStatus} onSyncNow={handleSyncNow}
           onToggleDone={handleToggleDone} onTogglePin={handleTogglePin} onDelete={handleDelete}
           selectedDateKey={selectedDateKey}
+          onTaskTimeChange={handleTaskTimeChange}
           onEdit={t => { if(t.isGoogle){alert("Googleカレンダーの予定は編集できません");return;} setModal({type:"task",data:t}); }}
         />
       )}
@@ -703,9 +769,15 @@ function CalendarModal({selectedDateKey,onClose,onSelect}){
 }
 
 // ─── TIMELINE VIEW（Any Planner風リスト型・空き時間圧縮）────────────────────
-function TimelineView({tasks, now, freeThreshold, getCat, googleSyncStatus, onSyncNow, onToggleDone, onTogglePin, onDelete, onEdit, selectedDateKey}){
+function TimelineView({tasks, now, freeThreshold, getCat, googleSyncStatus, onSyncNow, onToggleDone, onTogglePin, onDelete, onEdit, selectedDateKey, onTaskTimeChange}){
   const isToday = now >= 0;
   const nowRef = useRef(null);
+
+  // [追加] ドラッグ移動中の状態管理
+  // dragging: { taskId, originMin, currentStep } / currentStep は5分刻みのオフセット段数
+  const [dragging, setDragging] = useState(null);
+  const dragStartY = useRef(0);
+  const STEP_PX = 14; // この距離(px)動かすと1段階(5分)動く
 
   // 現在時刻ラインのtop管理（スクロール用）
   const [nowMin2, setNowMin2] = useState(nowMin());
@@ -722,6 +794,44 @@ function TimelineView({tasks, now, freeThreshold, getCat, googleSyncStatus, onSy
       setTimeout(() => nowRef.current?.scrollIntoView({ behavior:"smooth", block:"center" }), 300);
     }
   }, [isToday]);
+
+  // [追加] ドラッグハンドル操作（長押し→上下スライドで5分刻みに移動）
+  const handleDragStart = (e, task) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    dragStartY.current = clientY;
+    setDragging({ taskId: task.id, originMin: toMin(task.time), step: 0 });
+  };
+
+  useEffect(() => {
+    if (!dragging) return;
+    const handleMove = (e) => {
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      const deltaY = clientY - dragStartY.current;
+      const step = Math.round(deltaY / STEP_PX); // 1段=5分
+      setDragging(d => d ? {...d, step} : d);
+    };
+    const handleEnd = () => {
+      setDragging(d => {
+        if (d) {
+          const newStartMin = d.originMin + d.step * 5;
+          onTaskTimeChange(d.taskId, newStartMin);
+        }
+        return null;
+      });
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleEnd);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("touchend", handleEnd);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleEnd);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleEnd);
+    };
+  }, [dragging]);
 
   // [修正①] combinedTasksを使い、taskMatchesDateで繰り返しタスクも含めて取得
   const sortedTasks = [...tasks].sort((a, b) => a.time.localeCompare(b.time));
@@ -847,25 +957,35 @@ function TimelineView({tasks, now, freeThreshold, getCat, googleSyncStatus, onSy
                     const cat = getCat(task.categoryId);
                     const catColor = task.isGoogle ? "#4285F4" : cat.color;
                     const rep = task.isGoogle ? null : repeatLabel(task.repeat);
+                    const isDraggingThis = dragging?.taskId === task.id;
+                    // ドラッグ中はプレビュー用の時刻を計算（5分刻み）
+                    const previewStartMin = isDraggingThis
+                      ? Math.max(0, Math.min(1439, dragging.originMin + dragging.step * 5))
+                      : toMin(task.time);
+                    const previewEndMin = previewStartMin + (task.duration||30);
                     return (
                       <div style={{
                         backgroundColor: C.surface,
                         borderRadius:"8px",
                         padding:"8px 10px",
-                        boxShadow:`0 1px 3px rgba(0,0,0,${C.dark?"0.3":"0.06"})`,
+                        boxShadow: isDraggingThis ? `0 4px 14px ${C.accentGlow}` : `0 1px 3px rgba(0,0,0,${C.dark?"0.3":"0.06"})`,
                         borderLeft:`3px solid ${catColor}`,
+                        border: isDraggingThis ? `1px solid ${C.accent}` : "1px solid transparent",
                         position:"relative",
-                        opacity: task.done ? 0.5 : 1,
+                        opacity: task.done ? 0.5 : (isDraggingThis ? 0.92 : 1),
                         cursor:"pointer",
-                      }} onClick={()=>onEdit(task)}>
+                        transform: isDraggingThis ? "scale(1.02)" : "scale(1)",
+                        transition: isDraggingThis ? "none" : "transform 0.15s",
+                        zIndex: isDraggingThis ? 20 : 1,
+                      }} onClick={()=>{ if(!dragging) onEdit(task); }}>
                         {/* 時間帯 */}
-                        <div style={{fontSize:"10px",color:C.textSub,marginBottom:"3px",display:"flex",alignItems:"center",gap:6}}>
-                          <span>{task.time} 〜 {row.endTime}（{fmtDur(task.duration||30)}）</span>
+                        <div style={{fontSize:"10px",color:isDraggingThis?C.accent:C.textSub,marginBottom:"3px",display:"flex",alignItems:"center",gap:6,fontWeight:isDraggingThis?700:400}}>
+                          <span>{toTime(previewStartMin)} 〜 {toTime(previewEndMin)}（{fmtDur(task.duration||30)}）</span>
                           {rep&&<span style={{display:"flex",alignItems:"center",gap:2}}><Icon name="repeat" size={9} color={C.textFaint}/>{rep}</span>}
                           {task.isGoogle&&<span style={{color:"#4285F4",fontSize:9}}>Google</span>}
                         </div>
                         {/* タイトル */}
-                        <div style={{fontSize:"14px",fontWeight:500,color:C.text,lineHeight:1.4,textDecoration:task.done?"line-through":"none"}}>
+                        <div style={{fontSize:"14px",fontWeight:500,color:C.text,lineHeight:1.4,textDecoration:task.done?"line-through":"none",paddingRight:"24px"}}>
                           {task.title}
                         </div>
                         {/* バッジ */}
@@ -876,7 +996,7 @@ function TimelineView({tasks, now, freeThreshold, getCat, googleSyncStatus, onSy
                         </div>
                         {/* 完了ボタン */}
                         <button onClick={e=>{e.stopPropagation();onToggleDone(task);}} style={{
-                          position:"absolute",top:8,right:8,
+                          position:"absolute",top:8,right:34,
                           width:22,height:22,borderRadius:"50%",
                           border:`2px solid ${task.done?C.green:C.borderStrong}`,
                           background:task.done?C.green:"transparent",
@@ -884,6 +1004,22 @@ function TimelineView({tasks, now, freeThreshold, getCat, googleSyncStatus, onSy
                         }}>
                           {task.done&&<Icon name="checkmark" size={11} color={C.dark?"#000":"#fff"}/>}
                         </button>
+                        {/* ドラッグハンドル（Supabaseタスクのみ表示） */}
+                        {!task.isGoogle && (
+                          <div
+                            onMouseDown={e=>handleDragStart(e, task)}
+                            onTouchStart={e=>handleDragStart(e, task)}
+                            style={{
+                              position:"absolute", top:0, right:0, bottom:0,
+                              width:28, display:"flex", alignItems:"center", justifyContent:"center",
+                              cursor:"grab", touchAction:"none",
+                              color: isDraggingThis ? C.accent : C.textFaint,
+                              fontSize:16, fontWeight:700, userSelect:"none",
+                            }}
+                          >
+                            ⠿
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -1237,3 +1373,4 @@ function CategoryModal({initial,onClose,onSave,onDelete}){
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
+</html>

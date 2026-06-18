@@ -584,6 +584,10 @@ function App(){
             await saveTasksToSupabase(newTasks);
             showToast();
           }}
+          onDelete={async t=>{
+            setModal(null);
+            await handleDelete(t);
+          }}
         />
       )}
       {modal?.type==="later" && (
@@ -1184,9 +1188,9 @@ function SettingsView({wakeTime,setWakeTime,sleepTime,setSleepTime,freeThreshold
         </button>
       </SG>
       <SG title="データ管理">
-        <div style={{padding:"10px 12px",borderRadius:10,background:"#5865F218",border:"1px solid #5865F230",marginBottom:10}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#5865F2",marginBottom:2,display:"flex",alignItems:"center",gap:5}}>
-            <Icon name="bell" size={13} color="#5865F2"/>Discord通知
+        <div style={{padding:"10px 12px",borderRadius:10,background:"#06C75518",border:"1px solid #06C75530",marginBottom:10}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#06C755",marginBottom:2,display:"flex",alignItems:"center",gap:5}}>
+            <Icon name="bell" size={13} color="#06C755"/>LINE通知
           </div>
           <div style={{fontSize:11,color:C.textSub,lineHeight:1.6}}>
             Cloudflare Workerが毎分確認・送信。アプリを閉じていても届きます。
@@ -1246,7 +1250,7 @@ function BottomSheet({title,onClose,children}){
 function Field({label,children,style:s}){return<div style={{marginBottom:14,...s}}><div style={{fontSize:11,color:C.textSub,marginBottom:5,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8}}>{label}</div>{children}</div>;}
 function Pill({label,active,color,bg,onClick}){return<button onClick={onClick} style={{padding:"5px 12px",borderRadius:10,fontSize:12,fontWeight:700,background:active?bg:"transparent",border:`1px solid ${active?color:C.border}`,color:active?color:C.textSub,cursor:"pointer"}}>{label}</button>;}
 
-function TaskModal({initial,categories,selectedDateKey,onClose,onSave}){
+function TaskModal({initial,categories,selectedDateKey,onClose,onSave,onDelete}){
   const visibleCats=categories.filter(c=>c.id!=="google");
   const def={title:"",time:toTime(nowMin()+30),duration:30,categoryId:visibleCats[0]?.id||"other",done:false,pinned:false,dateKey:null,note:"",remindMinutes:null,repeat:{type:"none",interval:1,days:[],end:{type:"none"}}};
   const [f,setF]=useState(initial?{...def,...initial}:def);
@@ -1293,8 +1297,8 @@ function TaskModal({initial,categories,selectedDateKey,onClose,onSave}){
         )}
       </Field>
       <Field label="メモ（任意）"><input value={f.note} onChange={e=>set("note",e.target.value)} placeholder="補足など" style={inputSt()}/></Field>
-      <Field label="Discord通知タイミング">
-        <div style={{fontSize:11,color:C.textSub,marginBottom:8}}>タスクの何分前にDiscordへ通知しますか？</div>
+      <Field label="LINE通知タイミング">
+        <div style={{fontSize:11,color:C.textSub,marginBottom:8}}>タスクの何分前にLINEへ通知しますか？</div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {[
             {v:null, l:"なし"},
@@ -1330,6 +1334,12 @@ function TaskModal({initial,categories,selectedDateKey,onClose,onSave}){
         </button>
       </div>
       <button onClick={()=>{if(f.title.trim()){const saved={...f};if(saved.repeat?.type==="none"&&!saved.dateKey)saved.dateKey=selectedDateKey;onSave(saved);}}} style={{width:"100%",padding:14,borderRadius:14,fontSize:15,fontWeight:700,background:C.accent,border:"none",color:C.dark?"#000":"#fff",cursor:"pointer"}}>{initial?"更新する":"追加する"}</button>
+      {initial && (
+        <button onClick={()=>{ if(window.confirm(`「${initial.title}」を削除しますか？`)){ onDelete(initial); } }}
+          style={{width:"100%",padding:11,borderRadius:14,fontSize:13,fontWeight:600,background:C.redDim,border:`1px solid ${C.red}44`,color:C.red,cursor:"pointer",marginTop:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon name="trash" size={14} color={C.red}/>削除する
+        </button>
+      )}
     </BottomSheet>
   );
 }
